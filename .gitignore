@@ -39,3 +39,21 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+/scratch/
+
+# Local environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# User-uploaded files
+/public/uploads/*
+!/public/uploads/.gitkeep
+
+# Local logs and test output
+*.log
+lint-output.txt
+
+# Local generated files
+.DS_Store
+Thumbs.db

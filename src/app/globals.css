@@ -3,6 +3,8 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+  --input-bg: #ffffff;
+  --input-text: #111827;
 }
 
 @theme inline {
@@ -13,9 +15,13 @@
 }
 
 @media (prefers-color-scheme: dark) {
+  /* Force light mode colors to prevent white-on-white / black-on-black contrast issues 
+     since the app components are currently hardcoded for light mode. */
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #ffffff;
+    --foreground: #171717;
+    --input-bg: #ffffff;
+    --input-text: #111827;
   }
 }
 
@@ -23,4 +29,24 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+@layer base {
+  /* Fix globally unreadable inputs */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="submit"]):not([type="button"]), 
+  textarea, 
+  select {
+    background-color: var(--input-bg);
+    color: var(--input-text);
+  }
+
+  /* Handle Chrome/Edge autofill styles to maintain readability */
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover, 
+  input:-webkit-autofill:focus, 
+  input:-webkit-autofill:active {
+    -webkit-box-shadow: 0 0 0 30px var(--input-bg) inset !important;
+    -webkit-text-fill-color: var(--input-text) !important;
+    transition: background-color 5000s ease-in-out 0s;
+  }
 }

@@ -1,0 +1,1093 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------
+// AUTHENTICATION & IDENTITY
+// -----------------------------------------
+
+model User {
+  id           String   @id @default(cuid())
+  name         String?
+  email        String   @unique
+  phone        String?
+  passwordHash String?
+  role         Role     @default(FARMER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  farmerProfile   FarmerProfile?
+  cart            Cart?
+  orders          Order[]
+  shop            Shop?
+  deliveryPartner DeliveryPartner?
+  auditLogs       AuditLog[]
+
+  procurementCentreId String?
+  procurementCentre   ProcurementCentre? @relation(fields: [procurementCentreId], references: [id])
+
+  procurementBookings    ProcurementBooking[]
+  weighingOperations     ProcurementWeighing[]
+  qualityInspections     ProcurementQualityInspection[]
+  procurementPayments    ProcurementPayment[]
+  paymentAudits          ProcurementPaymentAudit[]
+  notifications          Notification[]
+  notificationPreference UserNotificationPreference?
+  priceAlerts            MarketPriceAlert[]
+  ownedMachinery         Machinery[]                    @relation("MachineryOwner")
+  machineryBookings      MachineryBooking[]             @relation("FarmerMachineryBookings")
+  receivedBookings       MachineryBooking[]             @relation("OwnerMachineryBookings")
+  paymentTransactions    PaymentTransaction[]
+}
+
+enum Role {
+  FARMER
+  SHOP_OWNER
+  PROCUREMENT_OFFICER
+  MACHINERY_OWNER
+  DELIVERY_PARTNER
+  ADMIN
+}
+
+// -----------------------------------------
+// FARMER FOUNDATION
+// -----------------------------------------
+
+model FarmerProfile {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  address  String?
+  village  String?
+  district String?
+  state    String?
+  pincode  String?
+
+  farm  Farm?
+  crops FarmerCrop[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Farm {
+  id              String   @id @default(cuid())
+  farmerProfileId String   @unique
+  farmName        String?
+  farmSize        Decimal?
+  farmSizeUnit    String?  @default("acres")
+  landType        String?
+  irrigationType  String?
+  primaryCrop     String?
+  village         String?
+  district        String?
+  state           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  farmerProfile FarmerProfile @relation(fields: [farmerProfileId], references: [id], onDelete: Cascade)
+}
+
+model FarmerCrop {
+  id              String    @id @default(cuid())
+  farmerProfileId String
+  cropName        String
+  variety         String?
+  area            Decimal?
+  areaUnit        String?   @default("acres")
+  season          String?
+  plantingDate    DateTime?
+  harvestDate     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  farmerProfile FarmerProfile @relation(fields: [farmerProfileId], references: [id], onDelete: Cascade)
+}
+
+// -----------------------------------------
+// AGRICULTURAL MARKETPLACE
+// -----------------------------------------
+
+model Category {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String?
+  icon        String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products Product[]
+}
+
+enum ShopType {
+  FERTILIZER
+  MACHINERY_RENTAL
+  MACHINERY_SALES
+}
+
+model Shop {
+  id     String  @id @default(cuid())
+  userId String? @unique
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  name        String
+  slug        String   @unique
+  description String?
+  shopType    ShopType @default(FERTILIZER)
+  ownerName   String?
+  phone       String?
+  email       String?
+  address     String?
+  village     String?
+  district    String?
+  state       String?
+  pincode     String?
+  latitude    Float?
+  longitude   Float?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  products   Product[]
+  orderItems OrderItem[]
+}
+
+model Product {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  description String?
+  productType ShopType @default(FERTILIZER)
+  specifications Json?
+  price       Decimal @db.Decimal(10, 2)
+  unit        String? // e.g. "25 kg bag", "1 Litre bottle", "packet", "piece"
+  stock       Int     @default(0)
+  isActive    Boolean @default(true)
+
+  // Agricultural specifics
+  suitableCrops String? // e.g. "Paddy, Wheat, Cotton, Maize"
+  variety       String? // e.g. "Hybrid F1", "Bio-certified"
+  dosage        String? // e.g. "2.5 ml per litre of water"
+  packageSize   String? // e.g. "500 ml", "25 kg"
+  season        String? // e.g. "Kharif", "Rabi", "All Seasons"
+
+  categoryId String
+  shopId     String
+
+  category Category @relation(fields: [categoryId], references: [id])
+  shop     Shop     @relation(fields: [shopId], references: [id])
+
+  images     ProductImage[]
+  cartItems  CartItem[]
+  orderItems OrderItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId])
+  @@index([shopId])
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  productId String
+  imageUrl  String
+  altText   String?
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+// -----------------------------------------
+// SHOPPING CART
+// -----------------------------------------
+
+model Cart {
+  id     String     @id @default(cuid())
+  userId String     @unique
+  user   User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items  CartItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model CartItem {
+  id        String @id @default(cuid())
+  cartId    String
+  productId String
+  quantity  Int    @default(1)
+
+  cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, productId])
+  @@index([cartId])
+  @@index([productId])
+}
+
+// -----------------------------------------
+// ORDER MANAGEMENT
+// -----------------------------------------
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  READY_FOR_DELIVERY
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  CREATED
+  PENDING
+  AUTHORIZED
+  PROCESSING
+  PAID
+  FAILED
+  CANCELLED
+  REFUND_PENDING
+  PARTIALLY_REFUNDED
+  REFUNDED
+  EXPIRED
+}
+
+enum PaymentMethod {
+  COD
+  UPI
+  ONLINE
+}
+
+model Order {
+  id          String @id @default(cuid())
+  orderNumber String @unique
+  userId      String
+  user        User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  status        OrderStatus   @default(PENDING)
+  paymentMethod PaymentMethod @default(COD)
+  paymentStatus PaymentStatus @default(PENDING)
+
+  subtotal       Decimal @db.Decimal(10, 2)
+  deliveryCharge Decimal @default(0) @db.Decimal(10, 2)
+  totalAmount    Decimal @db.Decimal(10, 2)
+
+  // Delivery Address Snapshot
+  shippingName     String
+  shippingPhone    String
+  shippingAddress  String
+  shippingVillage  String?
+  shippingDistrict String?
+  shippingState    String?
+  shippingPincode  String?
+
+  items              OrderItem[]
+  deliveryAssignment DeliveryAssignment?
+
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  paymentTransactions PaymentTransaction[]
+
+  @@index([userId])
+  @@index([orderNumber])
+  @@index([status])
+}
+
+model OrderItem {
+  id        String      @id @default(cuid())
+  orderId   String
+  productId String?
+  shopId    String?
+  status    OrderStatus @default(CONFIRMED)
+
+  // Historical Snapshot
+  productName  String
+  productPrice Decimal @db.Decimal(10, 2)
+  quantity     Int
+  unit         String?
+  lineTotal    Decimal @db.Decimal(10, 2)
+  shopName     String?
+
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  shop    Shop?    @relation(fields: [shopId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([shopId])
+}
+
+// -----------------------------------------
+// DELIVERY & LOGISTICS
+// -----------------------------------------
+
+enum DeliveryType {
+  ORDER
+  MACHINERY_RENTAL
+  MACHINERY_RETURN
+}
+
+enum DeliveryStatus {
+  PENDING_ASSIGNMENT
+  ASSIGNED
+  PICKED_UP
+  OUT_FOR_DELIVERY
+  DELIVERED
+  IN_TRANSIT
+  RETURN_REQUESTED
+  RETURNED
+  EXCEPTION
+  CANCELLED
+}
+
+model DeliveryPartner {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  phone           String?
+  vehicleType     String? // e.g. "Motorcycle / Bike", "Auto / Three Wheeler", "Mini Truck", "Tractor", "Truck"
+  vehicleNumber   String?
+  vehicleCapacity String? @default("STANDARD") // "LIGHT", "STANDARD", "HEAVY"
+  serviceArea     String?
+  isAvailable     Boolean @default(true)
+  isActive        Boolean @default(true)
+
+  maxActiveDeliveries Int @default(3)
+
+  lastKnownLat          Float?
+  lastKnownLon          Float?
+  lastLocationUpdatedAt DateTime?
+
+  assignments DeliveryAssignment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model DeliveryAssignment {
+  id String @id @default(cuid())
+
+  deliveryType DeliveryType @default(ORDER)
+
+  orderId String? @unique
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  machineryBookingId String?
+  machineryBooking   MachineryBooking? @relation(fields: [machineryBookingId], references: [id], onDelete: Cascade)
+
+  deliveryPartnerId String?
+  deliveryPartner   DeliveryPartner? @relation(fields: [deliveryPartnerId], references: [id], onDelete: Cascade)
+
+  status       DeliveryStatus @default(ASSIGNED)
+  deliveryCode String? // 6-digit verification code
+
+  // Scheduling & Windows
+  requestedPickupAt        DateTime?
+  scheduledPickupAt        DateTime?
+  scheduledDeliveryAt      DateTime?
+  deliveryWindow           String? // e.g. "09:00 - 12:00", "12:00 - 15:00", "15:00 - 18:00"
+  estimatedDistanceKm      Float?
+  estimatedDurationMinutes Int?
+  deliveryNotes            String?
+
+  // Location snapshots
+  pickupAddress   String?
+  pickupLatitude  Float?
+  pickupLongitude Float?
+  dropAddress     String?
+  dropLatitude    Float?
+  dropLongitude   Float?
+
+  // Delivery Proof & Exception Handling
+  recipientName           String?
+  proofImageUrl           String?
+  deliveryExceptionReason String?
+  rescheduleReason        String?
+
+  assignedAt       DateTime? @default(now())
+  pickedUpAt       DateTime?
+  outForDeliveryAt DateTime?
+  deliveredAt      DateTime?
+  cancelledAt      DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([deliveryPartnerId])
+  @@index([status])
+  @@index([orderId])
+  @@index([machineryBookingId])
+  @@index([deliveryType])
+}
+
+// -----------------------------------------
+// PROCUREMENT & CROP SALES (PHASE 11)
+// -----------------------------------------
+
+model Crop {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  nameTe      String? // Telugu name if needed
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  procurementCentreCrops ProcurementCentreCrop[]
+  procurementBookings    ProcurementBooking[]
+  procurementPrices      ProcurementPrice[]
+  procurementPayments    ProcurementPayment[]
+  marketPrices           MarketCropPrice[]
+  priceAlerts            MarketPriceAlert[]
+}
+
+model ProcurementCentre {
+  id                 String   @id @default(cuid())
+  name               String
+  code               String   @unique
+  description        String?
+  address            String?
+  village            String?
+  mandal             String?
+  district           String?
+  state              String?  @default("Andhra Pradesh")
+  pincode            String?
+  latitude           Float?
+  longitude          Float?
+  contactPhone       String?
+  operatingStartTime String?  @default("09:00") // format HH:MM
+  operatingEndTime   String?  @default("17:00") // format HH:MM
+  isActive           Boolean  @default(true)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  officers            User[]
+  supportedCrops      ProcurementCentreCrop[]
+  slots               ProcurementSlot[]
+  bookings            ProcurementBooking[]
+  procurementPrices   ProcurementPrice[]
+  procurementPayments ProcurementPayment[]
+}
+
+model ProcurementCentreCrop {
+  id              String   @id @default(cuid())
+  centreId        String
+  cropId          String
+  isActive        Boolean  @default(true)
+  dailyCapacity   Int      @default(0) // Default max quantity accepted per day
+  minimumQuantity Int      @default(1) // in quintals usually
+  maximumQuantity Int      @default(100) // in quintals usually
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  centre ProcurementCentre @relation(fields: [centreId], references: [id], onDelete: Cascade)
+  crop   Crop              @relation(fields: [cropId], references: [id], onDelete: Restrict)
+
+  @@unique([centreId, cropId])
+  @@index([centreId])
+  @@index([cropId])
+}
+
+model ProcurementSlot {
+  id          String   @id @default(cuid())
+  centreId    String
+  date        DateTime @db.Date
+  startTime   String // format HH:MM
+  endTime     String // format HH:MM
+  capacity    Int      @default(0) // e.g. 20 farmers per slot
+  bookedCount Int      @default(0) // Derived/cached booking count
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  centre   ProcurementCentre    @relation(fields: [centreId], references: [id], onDelete: Cascade)
+  bookings ProcurementBooking[]
+
+  @@unique([centreId, date, startTime])
+  @@index([centreId, date])
+}
+
+enum ProcurementBookingStatus {
+  BOOKED
+  ARRIVED
+  WAITING
+  IN_PROGRESS
+  WEIGHING
+  WEIGHING_COMPLETED
+  QUALITY_INSPECTION
+  ACCEPTED
+  PARTIALLY_ACCEPTED
+  REJECTED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+model ProcurementBooking {
+  id               String                   @id @default(cuid())
+  bookingNumber    String                   @unique
+  farmerId         String
+  centreId         String
+  cropId           String
+  slotId           String
+  expectedQuantity Decimal                  @db.Decimal(10, 2)
+  tokenNumber      String // Server-generated unique token (e.g. A-017)
+  status           ProcurementBookingStatus @default(BOOKED)
+
+  bookedAt            DateTime  @default(now())
+  arrivedAt           DateTime?
+  weighingStartedAt   DateTime?
+  weighingCompletedAt DateTime?
+  qualityStartedAt    DateTime?
+  qualityCompletedAt  DateTime?
+  completedAt         DateTime?
+  cancelledAt         DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  farmer            User                          @relation(fields: [farmerId], references: [id], onDelete: Restrict)
+  centre            ProcurementCentre             @relation(fields: [centreId], references: [id], onDelete: Restrict)
+  crop              Crop                          @relation(fields: [cropId], references: [id], onDelete: Restrict)
+  slot              ProcurementSlot               @relation(fields: [slotId], references: [id], onDelete: Restrict)
+  weighing          ProcurementWeighing?
+  qualityInspection ProcurementQualityInspection?
+  payment           ProcurementPayment?
+
+  @@unique([slotId, farmerId]) // One booking per farmer per slot
+  @@index([farmerId])
+  @@index([centreId, bookedAt])
+}
+
+model ProcurementWeighing {
+  id          String   @id @default(cuid())
+  bookingId   String   @unique
+  grossWeight Decimal  @db.Decimal(10, 2)
+  tareWeight  Decimal  @db.Decimal(10, 2)
+  netWeight   Decimal  @db.Decimal(10, 2)
+  unit        String   @default("KG")
+  weighedBy   String
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  booking ProcurementBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  officer User               @relation(fields: [weighedBy], references: [id], onDelete: Restrict)
+}
+
+enum QualityStatus {
+  PENDING
+  PASSED
+  PARTIALLY_ACCEPTED
+  REJECTED
+}
+
+model ProcurementQualityInspection {
+  id                 String        @id @default(cuid())
+  bookingId          String        @unique
+  inspectedBy        String
+  inspectedAt        DateTime      @default(now())
+  moisturePercentage Decimal       @db.Decimal(5, 2)
+  grade              String
+  qualityStatus      QualityStatus @default(PENDING)
+  acceptedQuantity   Decimal       @db.Decimal(10, 2)
+  rejectedQuantity   Decimal       @db.Decimal(10, 2)
+  rejectionReason    String?
+  notes              String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  booking ProcurementBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  officer User               @relation(fields: [inspectedBy], references: [id], onDelete: Restrict)
+
+  @@index([bookingId])
+  @@index([inspectedBy])
+  @@index([qualityStatus])
+  @@index([grade])
+}
+
+// -----------------------------------------
+// PROCUREMENT PAYMENT & PRICING
+// -----------------------------------------
+
+model ProcurementPrice {
+  id            String    @id @default(cuid())
+  cropId        String
+  centreId      String
+  pricePerKg    Decimal   @db.Decimal(10, 2)
+  effectiveFrom DateTime  @default(now())
+  effectiveTo   DateTime?
+  isActive      Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  crop   Crop              @relation(fields: [cropId], references: [id], onDelete: Restrict)
+  centre ProcurementCentre @relation(fields: [centreId], references: [id], onDelete: Restrict)
+
+  @@index([cropId, centreId, isActive])
+}
+
+model ProcurementPayment {
+  id        String @id @default(cuid())
+  bookingId String @unique
+  farmerId  String
+  cropId    String
+  centreId  String
+
+  eligibleQuantityKg Decimal @db.Decimal(10, 2)
+  pricePerKg         Decimal @db.Decimal(10, 2)
+
+  grossAmount      Decimal @db.Decimal(12, 2)
+  deductionAmount  Decimal @default(0) @db.Decimal(10, 2)
+  netPayableAmount Decimal @db.Decimal(12, 2)
+
+  paymentMethod String?
+  paymentStatus PaymentStatus @default(PENDING)
+
+  transactionReference String?   @unique
+  receiptNumber        String?   @unique
+  paidAt               DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  booking ProcurementBooking @relation(fields: [bookingId], references: [id], onDelete: Restrict)
+  farmer  User               @relation(fields: [farmerId], references: [id], onDelete: Restrict)
+  crop    Crop               @relation(fields: [cropId], references: [id], onDelete: Restrict)
+  centre  ProcurementCentre  @relation(fields: [centreId], references: [id], onDelete: Restrict)
+
+  audits ProcurementPaymentAudit[]
+
+  @@index([farmerId])
+  @@index([centreId])
+  @@index([paymentStatus])
+}
+
+model ProcurementPaymentAudit {
+  id             String         @id @default(cuid())
+  paymentId      String
+  action         String
+  performedBy    String
+  previousStatus PaymentStatus?
+  newStatus      PaymentStatus
+  notes          String?
+  createdAt      DateTime       @default(now())
+
+  payment ProcurementPayment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  user    User               @relation(fields: [performedBy], references: [id], onDelete: Restrict)
+
+  @@index([paymentId])
+  @@index([performedBy])
+}
+
+// -----------------------------------------
+// NOTIFICATIONS & EVENT SYSTEM
+// -----------------------------------------
+
+enum NotificationType {
+  PROCUREMENT_BOOKING_CREATED
+  PROCUREMENT_TOKEN_ASSIGNED
+  PROCUREMENT_ARRIVAL
+  PROCUREMENT_QUEUE_UPDATE
+  PROCUREMENT_TURN_APPROACHING
+  PROCUREMENT_WEIGHING_COMPLETED
+  PROCUREMENT_QUALITY_COMPLETED
+  PROCUREMENT_PAYMENT_CREATED
+  PROCUREMENT_PAYMENT_PROCESSING
+  PROCUREMENT_PAYMENT_PAID
+  PROCUREMENT_PAYMENT_FAILED
+  PROCUREMENT_RECEIPT_READY
+
+  MARKET_PRICE_ALERT
+
+  ORDER_CONFIRMED
+  ORDER_PROCESSING
+  ORDER_READY_FOR_DELIVERY
+  ORDER_CANCELLED
+
+  DELIVERY_ASSIGNED
+  DELIVERY_PICKED_UP
+  DELIVERY_OUT_FOR_DELIVERY
+  DELIVERY_DELIVERED
+  DELIVERY_CANCELLED
+  DELIVERY_RESCHEDULED
+  DELIVERY_EXCEPTION
+  MACHINERY_DELIVERY_ASSIGNED
+  MACHINERY_DELIVERY_PICKED_UP
+  MACHINERY_DELIVERY_DELIVERED
+  MACHINERY_RETURN_REQUESTED
+  MACHINERY_RETURN_PICKED_UP
+  MACHINERY_RETURN_COMPLETED
+
+  MACHINERY_BOOKING_CREATED
+  MACHINERY_BOOKING_APPROVED
+  MACHINERY_BOOKING_REJECTED
+  MACHINERY_BOOKING_CONFIRMED
+  MACHINERY_BOOKING_READY
+  MACHINERY_BOOKING_ACTIVE
+  MACHINERY_BOOKING_COMPLETED
+  MACHINERY_BOOKING_CANCELLED
+
+  ADMIN_PAYMENT_ISSUE
+  ADMIN_SYSTEM_ALERT
+  ADMIN_AUDIT_ALERT
+
+  SYSTEM
+}
+
+model Notification {
+  id         String           @id @default(cuid())
+  userId     String
+  type       NotificationType
+  title      String
+  message    String
+  entityType String?
+  entityId   String?
+  targetUrl  String?
+  isRead     Boolean          @default(false)
+  readAt     DateTime?
+  eventKey   String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@index([eventKey])
+}
+
+model UserNotificationPreference {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  procurement Boolean  @default(true)
+  orders      Boolean  @default(true)
+  delivery    Boolean  @default(true)
+  system      Boolean  @default(true)
+  toasts      Boolean  @default(true)
+  sound       Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// -----------------------------------------
+// MARKET PRICES & INTELLIGENCE (PHASE 19)
+// -----------------------------------------
+
+model Market {
+  id        String  @id @default(cuid())
+  name      String
+  type      String? // e.g. "APMC", "Mandi", "Wholesale"
+  district  String?
+  state     String? @default("Andhra Pradesh")
+  address   String?
+  latitude  Float?
+  longitude   Float?
+  isActive    Boolean @default(true)
+
+  prices MarketCropPrice[]
+  alerts MarketPriceAlert[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([district])
+  @@index([state])
+}
+
+enum PriceDataSource {
+  LIVE
+  CACHED
+  ADMIN
+  DEMO
+}
+
+model MarketCropPrice {
+  id            String  @id @default(cuid())
+  marketId      String
+  cropId        String? // Optional link to our Crop model, null if unmatched
+  commodityName String // Original name from source
+  variety       String?
+  grade         String?
+
+  minPrice   Decimal @db.Decimal(10, 2)
+  maxPrice   Decimal @db.Decimal(10, 2)
+  modalPrice Decimal @db.Decimal(10, 2)
+  priceUnit  String  @default("Quintal") // e.g. Quintal, KG
+
+  priceDate  DateTime        @db.Date
+  dataSource PriceDataSource @default(LIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  market Market @relation(fields: [marketId], references: [id], onDelete: Cascade)
+  crop   Crop?  @relation(fields: [cropId], references: [id], onDelete: SetNull)
+
+  @@index([marketId, priceDate])
+  @@index([cropId, priceDate])
+  @@index([priceDate])
+}
+
+enum AlertDirection {
+  ABOVE
+  BELOW
+}
+
+model MarketPriceAlert {
+  id              String         @id @default(cuid())
+  userId          String
+  cropId          String
+  marketId        String? // If null, alert applies to any market
+  thresholdPrice  Decimal        @db.Decimal(10, 2)
+  direction       AlertDirection @default(ABOVE)
+  isActive        Boolean        @default(true)
+  lastTriggeredAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  crop   Crop    @relation(fields: [cropId], references: [id], onDelete: Cascade)
+  market Market? @relation(fields: [marketId], references: [id], onDelete: SetNull)
+
+  @@index([userId, isActive])
+  @@index([cropId, isActive])
+}
+
+// -----------------------------------------
+// MACHINERY MARKETPLACE & RENTAL (PHASE 24)
+// -----------------------------------------
+
+enum RentalMode {
+  HOURLY
+  DAILY
+  PER_ACRE
+}
+
+enum MachineryCondition {
+  NEW
+  EXCELLENT
+  GOOD
+  FAIR
+}
+
+enum RentalBookingStatus {
+  PENDING
+  OWNER_APPROVED
+  CONFIRMED
+  READY
+  ACTIVE
+  COMPLETED
+  OWNER_REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+model MachineryCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  slug        String   @unique
+  description String?
+  icon        String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  machinery Machinery[]
+}
+
+model Machinery {
+  id          String             @id @default(cuid())
+  ownerId     String
+  categoryId  String
+  name        String
+  brand       String?
+  modelNumber String?
+  description String?
+  yearOfMake  Int?
+  condition   MachineryCondition @default(GOOD)
+  horsepower  Int?
+  fuelType    String?
+  location    String
+  address     String?
+  latitude    Float?
+  longitude   Float?
+  specifications Json?
+
+  supportsHourly  Boolean  @default(false)
+  pricePerHour    Decimal? @db.Decimal(10, 2)
+  supportsDaily   Boolean  @default(true)
+  pricePerDay     Decimal? @db.Decimal(10, 2)
+  supportsPerAcre Boolean  @default(false)
+  pricePerAcre    Decimal? @db.Decimal(10, 2)
+
+  securityDeposit Decimal @default(0) @db.Decimal(10, 2)
+  deliveryCharge  Decimal @default(0) @db.Decimal(10, 2)
+
+  isAvailable Boolean @default(true)
+  isApproved  Boolean @default(true)
+  isActive    Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner    User               @relation("MachineryOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  category MachineryCategory  @relation(fields: [categoryId], references: [id])
+  images   MachineryImage[]
+  bookings MachineryBooking[]
+
+  @@index([ownerId])
+  @@index([categoryId])
+  @@index([isApproved, isAvailable, isActive])
+  @@index([createdAt])
+}
+
+model MachineryImage {
+  id          String   @id @default(cuid())
+  machineryId String
+  url         String
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  machinery Machinery @relation(fields: [machineryId], references: [id], onDelete: Cascade)
+
+  @@index([machineryId])
+}
+
+model MachineryBooking {
+  id            String     @id @default(cuid())
+  bookingNumber String     @unique
+  machineryId   String
+  farmerId      String
+  ownerId       String
+  startDateTime DateTime
+  endDateTime   DateTime
+  rentalMode    RentalMode
+  quantity      Decimal    @default(1) @db.Decimal(10, 2)
+
+  unitPrice       Decimal @db.Decimal(10, 2)
+  baseAmount      Decimal @db.Decimal(10, 2)
+  deliveryCharge  Decimal @default(0) @db.Decimal(10, 2)
+  securityDeposit Decimal @default(0) @db.Decimal(10, 2)
+  totalAmount     Decimal @db.Decimal(10, 2)
+
+  status        RentalBookingStatus @default(PENDING)
+  paymentStatus PaymentStatus       @default(PENDING)
+  paymentMethod String              @default("CASH_ON_DELIVERY")
+
+  deliveryAddress    String?
+  notes              String?
+  ownerNotes         String?
+  cancellationReason String?
+  cancelledAt        DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  machinery           Machinery            @relation(fields: [machineryId], references: [id])
+  farmer              User                 @relation("FarmerMachineryBookings", fields: [farmerId], references: [id], onDelete: Cascade)
+  owner               User                 @relation("OwnerMachineryBookings", fields: [ownerId], references: [id], onDelete: Cascade)
+  deliveryAssignments DeliveryAssignment[]
+
+  @@index([farmerId])
+  @@index([ownerId])
+  @@index([machineryId])
+  @@index([status])
+  @@index([startDateTime, endDateTime])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorUserId String?
+  actorRole   String?
+  action      String
+  entityType  String
+  entityId    String
+  metadata    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  user User? @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([actorUserId])
+  @@index([createdAt])
+}
+
+// -----------------------------------------
+// PAYMENT INFRASTRUCTURE (PHASE 29)
+// -----------------------------------------
+
+model PaymentTransaction {
+  id String @id @default(cuid())
+
+  orderId String?
+  order   Order?  @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  machineryBookingId String?
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Restrict)
+
+  provider          String
+  providerOrderId   String? @unique
+  providerPaymentId String? @unique
+
+  amount        Decimal       @db.Decimal(10, 2)
+  currency      String        @default("INR")
+  status        PaymentStatus @default(CREATED)
+  paymentMethod PaymentMethod @default(ONLINE)
+
+  idempotencyKey String? @unique
+
+  failureReason String?
+  refundId      String?  @unique
+  refundAmount  Decimal? @db.Decimal(10, 2)
+
+  paidAt    DateTime?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([orderId])
+  @@index([userId])
+  @@index([providerOrderId])
+  @@index([status])
+}
+
+model PaymentWebhookEvent {
+  id              String   @id @default(cuid())
+  provider        String
+  providerEventId String   @unique
+  processedAt     DateTime @default(now())
+  payload         String
+}
