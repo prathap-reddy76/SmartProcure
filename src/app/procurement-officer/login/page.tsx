@@ -35,9 +35,9 @@ export default function ProcurementOfficerLoginPage() {
     },
   });
 
-  const handleQuickFill = (email: string, pass: string) => {
+  const handleQuickFillEmail = (email: string) => {
     setValue("email", email, { shouldValidate: true });
-    setValue("password", pass, { shouldValidate: true });
+    setValue("password", "");
     setErrorMessage("");
   };
 
@@ -159,27 +159,29 @@ export default function ProcurementOfficerLoginPage() {
             </div>
           </form>
 
-          {/* Quick-Fill Helper for Seeded Procurement Officer */}
-          <div className="mt-6 pt-5 border-t border-slate-700/60">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
-              Seeded Officer Account
-            </span>
-            <button
-              type="button"
-              onClick={() => handleQuickFill("officer@smartprocure.com", "Officer@123")}
-              className="w-full text-left p-2.5 rounded-xl bg-slate-900/60 hover:bg-slate-700/60 border border-slate-700/80 transition-colors group flex items-center justify-between"
-            >
-              <div>
-                <p className="text-xs font-semibold text-white group-hover:text-emerald-300 transition-colors">
-                  Ramesh Procurement Officer
-                </p>
-                <p className="text-[11px] text-slate-400">officer@smartprocure.com</p>
-              </div>
-              <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded-md">
-                Fill
+          {/* Quick-Fill Helper for Seeded Procurement Officer in Development */}
+          {process.env.NODE_ENV !== "production" && (
+            <div className="mt-6 pt-5 border-t border-slate-700/60">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2">
+                Development Test Account (Fill Email)
               </span>
-            </button>
-          </div>
+              <button
+                type="button"
+                onClick={() => handleQuickFillEmail("officer@smartprocure.com")}
+                className="w-full text-left p-2.5 rounded-xl bg-slate-900/60 hover:bg-slate-700/60 border border-slate-700/80 transition-colors group flex items-center justify-between cursor-pointer"
+              >
+                <div>
+                  <p className="text-xs font-semibold text-white group-hover:text-emerald-300 transition-colors">
+                    Ramesh Procurement Officer
+                  </p>
+                  <p className="text-[11px] text-slate-400">officer@smartprocure.com</p>
+                </div>
+                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 border border-emerald-800/60 px-2 py-0.5 rounded-md">
+                  Fill Email
+                </span>
+              </button>
+            </div>
+          )}
 
           <div className="mt-6 text-center">
             <Link

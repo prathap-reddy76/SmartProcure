@@ -50,8 +50,7 @@ export async function requireAuth(unauthRedirect = "/login") {
   }
 
   // Deactivated/suspended accounts must be restricted from standard access.
-  // Delivery partners are handled within delivery layout to display the dedicated pending/suspension view.
-  if (!dbUser.isActive && dbUser.role !== "DELIVERY_PARTNER") {
+  if (!dbUser.isActive) {
     redirect(`${unauthRedirect}?error=AccountDeactivated`);
   }
 

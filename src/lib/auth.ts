@@ -23,28 +23,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (parsedCredentials.success) {
           const { email, password } = parsedCredentials.data;
           
-          const user = await prisma.user.findUnique({ where: { email } });
+          const normalizedEmail = email.trim().toLowerCase();
+          const user = await prisma.user.findUnique({
+            where: { email: normalizedEmail },
+          });
+
+          // Account must exist and have a valid password hash
           if (!user || !user.passwordHash) {
             return null;
           }
 
-          if (!user.isActive && user.role !== "DELIVERY_PARTNER") {
+          // Account must be active
+          if (!user.isActive) {
             return null;
           }
 
-          let passwordsMatch = await bcrypt.compare(password, user.passwordHash);
-          if (!passwordsMatch && user.role === "DELIVERY_PARTNER") {
-            passwordsMatch = password === "Partner@123" || password === "Delivery@123" || password === "password123";
+          // Verify password using bcrypt against stored hash
+          const passwordsMatch = await bcrypt.compare(password, user.passwordHash);
+          if (!passwordsMatch) {
+            return null;
           }
 
-          if (passwordsMatch) {
-            return {
-              id: user.id,
-              name: user.name,
-              email: user.email,
-              role: user.role,
-            };
-          }
+          return {
+            id: user.id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+          };
         }
 
         return null;
@@ -74,6 +79,3 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   session: { strategy: "jwt" },
   trustHost: true,
 });
-
-
-

@@ -35,7 +35,7 @@ export async function getPostLoginRedirect(): Promise<PostLoginResult> {
     };
   }
 
-  if (!dbUser.isActive && dbUser.role !== "DELIVERY_PARTNER") {
+  if (!dbUser.isActive) {
     return {
       redirectUrl: "/login?error=AccountDeactivated",
       role: dbUser.role,

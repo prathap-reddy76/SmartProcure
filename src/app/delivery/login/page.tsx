@@ -134,9 +134,6 @@ export default function DeliveryLoginPage() {
                 <label htmlFor="password" className="block text-xs font-bold text-slate-300 uppercase tracking-wider">
                   Password
                 </label>
-                <span className="text-[11px] text-slate-400">
-                  Default test key: <code className="text-blue-300 font-mono">Partner@123</code>
-                </span>
               </div>
               <div className="mt-1.5">
                 <input
@@ -172,29 +169,31 @@ export default function DeliveryLoginPage() {
             </div>
           </form>
 
-          {/* Quick Account Fill for Seeded Delivery Partners */}
-          <div className="mt-6 pt-6 border-t border-slate-700/80">
-            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2.5">
-              Seeded Delivery Partner Accounts
-            </span>
-            <div className="grid grid-cols-1 gap-1.5">
-              {SEEDED_PARTNERS.map((p) => (
-                <button
-                  key={p.email}
-                  type="button"
-                  onClick={() => handleSelectPartner(p.email)}
-                  className="w-full text-left px-3 py-1.5 rounded-lg bg-slate-900/60 hover:bg-slate-700/60 border border-slate-700/50 flex items-center justify-between text-xs transition-colors group cursor-pointer"
-                >
-                  <span className="font-semibold text-slate-200 group-hover:text-blue-300">
-                    {p.name}
-                  </span>
-                  <span className="text-[10px] font-mono text-slate-400 group-hover:text-slate-300">
-                    {p.email}
-                  </span>
-                </button>
-              ))}
+          {/* Quick Account Fill for Seeded Delivery Partners in Development */}
+          {process.env.NODE_ENV !== "production" && (
+            <div className="mt-6 pt-6 border-t border-slate-700/80">
+              <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-2.5">
+                Development Test Accounts (Fill Email)
+              </span>
+              <div className="grid grid-cols-1 gap-1.5">
+                {SEEDED_PARTNERS.map((p) => (
+                  <button
+                    key={p.email}
+                    type="button"
+                    onClick={() => handleSelectPartner(p.email)}
+                    className="w-full text-left px-3 py-1.5 rounded-lg bg-slate-900/60 hover:bg-slate-700/60 border border-slate-700/50 flex items-center justify-between text-xs transition-colors group cursor-pointer"
+                  >
+                    <span className="font-semibold text-slate-200 group-hover:text-blue-300">
+                      {p.name}
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400 group-hover:text-slate-300">
+                      {p.email}
+                    </span>
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Back to Standard Login */}
           <div className="mt-6 pt-4 border-t border-slate-700/80 text-center">

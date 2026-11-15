@@ -28,9 +28,9 @@ export default function LoginPage() {
     resolver: zodResolver(loginSchema),
   });
 
-  const handleQuickFill = (email: string, pass: string) => {
+  const handleQuickFillEmail = (email: string) => {
     setValue("email", email, { shouldValidate: true });
-    setValue("password", pass, { shouldValidate: true });
+    setValue("password", "");
     setError("");
   };
 
@@ -138,42 +138,44 @@ export default function LoginPage() {
             </div>
           </form>
 
-          {/* Seeded Accounts Quick-Fill Helper */}
-          <div className="mt-6 pt-5 border-t border-gray-100">
-            <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-2">
-              Seeded Test Portals
-            </span>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickFill("officer@smartprocure.com", "Officer@123")}
-                className="text-left px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-xs text-emerald-800 font-medium transition-colors"
-              >
-                Procurement Officer
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill("prathap@gmail.com", "password123")}
-                className="text-left px-2.5 py-1.5 rounded-lg bg-green-50 hover:bg-green-100 border border-green-200 text-xs text-green-800 font-medium transition-colors"
-              >
-                Farmer
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill("your-admin-email@example.com", "password123")}
-                className="text-left px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-xs text-indigo-800 font-medium transition-colors"
-              >
-                System Admin
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill("reddy01@gmail.com", "password123")}
-                className="text-left px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-xs text-amber-800 font-medium transition-colors"
-              >
-                Shop Owner
-              </button>
+          {/* Development-Only Seeded Accounts Quick-Fill Helper */}
+          {process.env.NODE_ENV !== "production" && (
+            <div className="mt-6 pt-5 border-t border-gray-100">
+              <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wider block mb-2">
+                Development Test Accounts (Fill Email)
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleQuickFillEmail("officer@smartprocure.com")}
+                  className="text-left px-2.5 py-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 text-xs text-emerald-800 font-medium transition-colors cursor-pointer"
+                >
+                  Procurement Officer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleQuickFillEmail("prathap@gmail.com")}
+                  className="text-left px-2.5 py-1.5 rounded-lg bg-green-50 hover:bg-green-100 border border-green-200 text-xs text-green-800 font-medium transition-colors cursor-pointer"
+                >
+                  Farmer
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleQuickFillEmail("your-admin-email@example.com")}
+                  className="text-left px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 text-xs text-indigo-800 font-medium transition-colors cursor-pointer"
+                >
+                  System Admin
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleQuickFillEmail("reddy01@gmail.com")}
+                  className="text-left px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 border border-amber-200 text-xs text-amber-800 font-medium transition-colors cursor-pointer"
+                >
+                  Shop Owner
+                </button>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Delivery Partner Portal Link */}
           <div className="mt-6 border-t border-gray-100 pt-4 text-center">
