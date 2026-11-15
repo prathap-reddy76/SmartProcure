@@ -43,6 +43,7 @@ function NavContent({
   pathname,
   onClose,
   onSignOut,
+  isSigningOut,
 }: {
   farmerName: string;
   farmerEmail: string;
@@ -50,6 +51,7 @@ function NavContent({
   pathname: string;
   onClose?: () => void;
   onSignOut: () => void;
+  isSigningOut?: boolean;
 }) {
   const mainNavItems = [
     { label: "Dashboard", href: "/farmer/dashboard", icon: DashboardIcon },
@@ -75,14 +77,15 @@ function NavContent({
   ];
 
   return (
-    <div className="flex flex-col h-full justify-between">
-      <div>
+    <div className="flex flex-col h-full bg-white">
+      {/* 1. Header (Brand & Farmer Card) - Fixed top */}
+      <div className="shrink-0">
         {/* Brand */}
-        <div className="p-6 border-b border-green-100 flex items-center justify-between">
+        <div className="p-5 border-b border-green-100 flex items-center justify-between">
           <Link
             href="/farmer/dashboard"
             onClick={onClose}
-            className="flex items-center gap-2"
+            className="flex items-center gap-2.5"
           >
             <div className="w-9 h-9 bg-green-700 rounded-lg flex items-center justify-center text-white font-bold text-xl shadow-xs">
               SP
@@ -99,7 +102,7 @@ function NavContent({
           {onClose && (
             <button
               onClick={onClose}
-              className="md:hidden p-2 text-gray-500 hover:text-gray-700 rounded-lg"
+              className="md:hidden p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors cursor-pointer"
               aria-label="Close menu"
             >
               <CloseIcon className="w-6 h-6" />
@@ -108,26 +111,30 @@ function NavContent({
         </div>
 
         {/* User Card */}
-        <div className="px-6 py-4 bg-green-50/70 border-b border-green-100/60 flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-green-200 text-green-800 flex items-center justify-center font-bold text-base">
+        <div className="px-5 py-3.5 bg-green-50/80 border-b border-green-100/80 flex items-center gap-3">
+          <div className="w-9 h-9 rounded-full bg-green-200 text-green-800 flex items-center justify-center font-bold text-sm shrink-0 border border-green-300">
             {farmerName.charAt(0).toUpperCase()}
           </div>
-          <div className="overflow-hidden">
-            <p className="text-sm font-semibold text-gray-900 truncate">{farmerName}</p>
-            <p className="text-xs text-gray-500 truncate">{farmerEmail || "Verified Farmer"}</p>
+          <div className="overflow-hidden flex-1 min-w-0">
+            <p className="text-sm font-bold text-gray-900 truncate">{farmerName}</p>
+            <p className="text-xs text-green-700 truncate font-medium">{farmerEmail || "Verified Farmer"}</p>
           </div>
         </div>
+      </div>
 
-        {/* Main Navigation */}
-        <nav className="p-4 space-y-1" aria-label="Main Navigation">
-          <div className="px-3 pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-            Menu
-          </div>
+      {/* 2. Scrollable Middle Section: Main Navigation */}
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-1">
+        <div className="px-3 pb-2 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
+          Menu
+        </div>
+        <nav className="space-y-1" aria-label="Main Navigation">
           {mainNavItems.map((item) => {
             const isActive =
               pathname === item.href ||
               (item.href === "/farmer/marketplace"
-                ? pathname === "/farmer/marketplace" || (pathname.startsWith("/farmer/marketplace/") && !pathname.startsWith("/farmer/marketplace/shops"))
+                ? pathname === "/farmer/marketplace" ||
+                  (pathname.startsWith("/farmer/marketplace/") &&
+                    !pathname.startsWith("/farmer/marketplace/shops"))
                 : item.href !== "/farmer/dashboard" && pathname.startsWith(item.href));
             const Icon = item.icon;
             return (
@@ -135,7 +142,7 @@ function NavContent({
                 key={item.href}
                 href={item.href}
                 onClick={onClose}
-                className={`flex items-center justify-between px-3.5 py-3 rounded-lg text-sm font-medium transition-colors ${
+                className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                   isActive
                     ? "bg-green-700 text-white shadow-xs font-semibold"
                     : "text-gray-700 hover:bg-green-50 hover:text-green-800"
@@ -143,7 +150,7 @@ function NavContent({
               >
                 <div className="flex items-center gap-3">
                   <Icon
-                    className={`w-5 h-5 flex-shrink-0 ${isActive ? "text-white" : "text-green-700"}`}
+                    className={`w-5 h-5 shrink-0 ${isActive ? "text-white" : "text-green-700"}`}
                   />
                   <span>{item.label}</span>
                 </div>
@@ -171,11 +178,11 @@ function NavContent({
             return (
               <div
                 key={item.label}
-                className="flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm text-gray-400 cursor-not-allowed select-none"
+                className="flex items-center justify-between px-3.5 py-2 rounded-lg text-sm text-gray-400 cursor-not-allowed select-none"
                 title={`${item.label} is coming in the next phase`}
               >
                 <div className="flex items-center gap-3">
-                  <Icon className="w-5 h-5 text-gray-300 flex-shrink-0" />
+                  <Icon className="w-5 h-5 text-gray-300 shrink-0" />
                   <span>{item.label}</span>
                 </div>
                 <span className="text-[10px] font-medium bg-gray-100 text-gray-500 px-2 py-0.5 rounded-full border border-gray-200">
@@ -187,14 +194,17 @@ function NavContent({
         </nav>
       </div>
 
-      {/* Footer / Logout */}
-      <div className="p-4 border-t border-gray-100">
+      {/* 3. Pinned Footer: Sign Out Button (Always visible on all screen sizes) */}
+      <div className="p-4 border-t border-gray-100 bg-gray-50/70 shrink-0 mt-auto">
         <button
+          type="button"
           onClick={onSignOut}
-          className="flex items-center gap-3 w-full px-3.5 py-3 text-sm font-medium text-red-700 hover:bg-red-50 rounded-lg transition-colors"
+          disabled={isSigningOut}
+          className="flex items-center justify-center gap-2.5 w-full px-4 py-2.5 text-sm font-semibold text-red-600 hover:text-red-700 bg-red-50/80 hover:bg-red-100 active:bg-red-200/80 border border-red-200/70 rounded-xl transition-all cursor-pointer shadow-2xs disabled:opacity-60"
+          aria-label="Sign out of Farmer Portal"
         >
-          <LogoutIcon className="w-5 h-5 text-red-600" />
-          <span>Sign Out</span>
+          <LogoutIcon className="w-4 h-4 text-red-500" />
+          <span>{isSigningOut ? "Signing out..." : "Sign Out"}</span>
         </button>
       </div>
     </div>
@@ -208,9 +218,15 @@ export function FarmerNav({
 }: FarmerNavProps) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
 
   const handleSignOut = async () => {
-    await signOut({ callbackUrl: "/login" });
+    setIsSigningOut(true);
+    try {
+      await signOut({ callbackUrl: "/login", redirect: true });
+    } catch {
+      window.location.href = "/login";
+    }
   };
 
   return (
@@ -223,7 +239,7 @@ export function FarmerNav({
           </div>
           <span className="font-bold text-green-900 text-lg">SmartProcure</span>
         </Link>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1.5">
           <NotificationBell />
           {/* Quick Mobile Cart Link */}
           <Link
@@ -238,9 +254,21 @@ export function FarmerNav({
               </span>
             )}
           </Link>
+          {/* Mobile Sign Out Button */}
           <button
+            type="button"
+            onClick={handleSignOut}
+            disabled={isSigningOut}
+            className="p-2 text-red-600 hover:text-red-700 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+            aria-label="Sign Out"
+            title="Sign out of SmartProcure"
+          >
+            <LogoutIcon className="w-5 h-5" />
+          </button>
+          <button
+            type="button"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 -mr-2 text-gray-700 hover:text-green-800 hover:bg-green-50 rounded-lg"
+            className="p-2 -mr-1 text-gray-700 hover:text-green-800 hover:bg-green-50 rounded-lg cursor-pointer"
             aria-label="Toggle navigation menu"
           >
             <MenuIcon className="w-6 h-6" />
@@ -269,6 +297,7 @@ export function FarmerNav({
           pathname={pathname}
           onClose={() => setMobileMenuOpen(false)}
           onSignOut={handleSignOut}
+          isSigningOut={isSigningOut}
         />
       </aside>
 
@@ -280,6 +309,7 @@ export function FarmerNav({
           cartCount={cartCount}
           pathname={pathname}
           onSignOut={handleSignOut}
+          isSigningOut={isSigningOut}
         />
       </aside>
     </>
