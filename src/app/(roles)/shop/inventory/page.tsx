@@ -25,10 +25,18 @@ export default async function ShopInventoryPage({ searchParams }: { searchParams
   const session = await requireRole("SHOP_OWNER");
   const shop = await prisma.shop.findUnique({ where: { userId: session.user?.id as string } });
   
+  if (!shop) {
+    return (
+      <div className="p-8 text-center text-red-500 font-bold bg-white rounded-2xl border border-gray-200">
+        No shop linked to your account.
+      </div>
+    );
+  }
+
   const [totalCount, outOfStockCount, lowStockCount] = await Promise.all([
-    prisma.product.count({ where: { shopId: shop!.id } }),
-    prisma.product.count({ where: { shopId: shop!.id, stock: 0 } }),
-    prisma.product.count({ where: { shopId: shop!.id, stock: { gt: 0, lte: 10 } } })
+    prisma.product.count({ where: { shopId: shop.id } }),
+    prisma.product.count({ where: { shopId: shop.id, stock: 0 } }),
+    prisma.product.count({ where: { shopId: shop.id, stock: { gt: 0, lte: 10 } } })
   ]);
   const inStockCount = totalCount - outOfStockCount - lowStockCount;
 

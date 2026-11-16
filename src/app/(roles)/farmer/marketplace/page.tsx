@@ -17,10 +17,8 @@ export default async function MarketplacePage({
   await requireRole("FARMER");
   const params = await searchParams;
 
-  const [categories, productResult] = await Promise.all([
-    getMarketplaceCategories(),
-    getMarketplaceProducts(params),
-  ]);
+  const categories = await getMarketplaceCategories();
+  const productResult = await getMarketplaceProducts(params);
 
   const { products, total, totalPages, currentPage } = productResult;
 

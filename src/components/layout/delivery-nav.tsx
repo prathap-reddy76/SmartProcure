@@ -192,7 +192,12 @@ export function DeliveryNav({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleSignOut = async () => {
-    await signOut({ callbackUrl: "/login" });
+    try {
+      await signOut({ redirect: false });
+      window.location.href = "/delivery/login";
+    } catch {
+      window.location.href = "/delivery/login";
+    }
   };
 
   return (

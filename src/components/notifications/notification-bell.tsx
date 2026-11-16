@@ -135,7 +135,8 @@ export function NotificationBell({
         (event.category === "procurement" && preferences.procurement) ||
         (event.category === "orders" && preferences.orders) ||
         (event.category === "delivery" && preferences.delivery) ||
-        (event.category === "system" && preferences.system);
+        (event.category === "system" && preferences.system) ||
+        event.category === "machinery";
 
       if (categoryAllowed) {
         // Show real-time toast if enabled

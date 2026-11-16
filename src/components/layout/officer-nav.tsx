@@ -25,7 +25,14 @@ export function OfficerNav({
   const [isOpen, setIsOpen] = useState(false);
   const pathname = usePathname();
 
-  const handleSignOut = () => signOut({ callbackUrl: "/login" });
+  const handleSignOut = async () => {
+    try {
+      await signOut({ redirect: false });
+      window.location.href = "/login";
+    } catch {
+      window.location.href = "/login";
+    }
+  };
 
   return (
     <>

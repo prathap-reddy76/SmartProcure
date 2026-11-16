@@ -32,7 +32,7 @@ interface NotificationsListClientProps {
   page: number;
   totalPages: number;
   unreadOnly: boolean;
-  currentCategory?: "all" | "procurement" | "orders" | "delivery" | "system";
+  currentCategory?: "all" | "procurement" | "orders" | "delivery" | "machinery" | "system";
   userRole?: string;
 }
 
@@ -280,6 +280,16 @@ export function NotificationsListClient({
           }`}
         >
           Delivery
+        </Link>
+        <Link
+          href="/notifications?category=machinery"
+          className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-colors whitespace-nowrap ${
+            !unreadOnly && currentCategory === "machinery"
+              ? "bg-green-700 text-white shadow-2xs"
+              : "text-gray-600 hover:bg-gray-100"
+          }`}
+        >
+          Machinery
         </Link>
         <Link
           href="/notifications?category=system"

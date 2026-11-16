@@ -35,9 +35,23 @@ export function useNotificationStream({
       const res = await getUnreadNotificationCount();
       if (res.success) {
         setUnreadCount(res.count);
+        return;
       }
     } catch (err) {
-      console.warn("Failed to fetch unread notification count:", err);
+      console.warn("Failed to fetch unread notification count via server action:", err);
+    }
+
+    // Direct HTTP polling fallback to /api/notifications/poll
+    try {
+      const fetchRes = await fetch("/api/notifications/poll?unreadOnly=true&limit=1");
+      if (fetchRes.ok) {
+        const data = await fetchRes.json();
+        if (data.success && typeof data.count === "number") {
+          setUnreadCount(data.count);
+        }
+      }
+    } catch (pollErr) {
+      console.warn("Direct HTTP poll fallback also failed:", pollErr);
     }
   }, []);
 

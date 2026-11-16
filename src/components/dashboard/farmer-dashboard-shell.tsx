@@ -133,7 +133,7 @@ export function FarmerDashboardShell({
 
           {/* Notifications Link */}
           <Link
-            href="/farmer/notifications"
+            href="/notifications"
             className="relative p-2 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors"
             title={language === "te" ? "నోటిఫికేషన్లు" : "Notifications"}
           >
@@ -192,7 +192,7 @@ export function FarmerDashboardShell({
           <p className="text-2xl font-black text-gray-900 mt-1">{activeDeliveries.length}</p>
         </Link>
         <Link
-          href="/farmer/notifications"
+          href="/notifications"
           className="bg-white p-4 rounded-xl border border-gray-200/90 hover:border-emerald-400 transition-colors shadow-2xs"
         >
           <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">

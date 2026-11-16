@@ -20,7 +20,7 @@ export async function startQualityInspection(bookingId: string) {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const booking = await tx.procurementBooking.findUnique({
         where: { id: bookingId }
       });
@@ -72,7 +72,7 @@ export async function completeQualityInspection(
   if (!grade?.trim()) return { success: false, error: "Grade is required." };
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const booking = await tx.procurementBooking.findUnique({
         where: { id: bookingId },
         include: { crop: true },
@@ -140,19 +140,26 @@ export async function completeQualityInspection(
       });
 
       await tx.auditLog.create({ data: { actorUserId: user.id, actorRole: "PROCUREMENT_OFFICER", action: "PROCUREMENT_INSPECTION_COMPLETED", entityType: "ProcurementBooking", entityId: booking.id, metadata: { qualityStatus, acceptedQuantity, rejectedQuantity, grade } } });
-      await notifyProcurementQualityCompleted({
-        farmerId: booking.farmerId,
-        bookingId: booking.id,
-        tokenNumber: booking.tokenNumber,
-        cropName: booking.crop.name,
-        qualityStatus,
-        acceptedQuantity,
-        rejectedQuantity,
-        tx,
-      });
-
-      return { success: true };
+      return { success: true, farmerId: booking.farmerId, bookingId: booking.id, tokenNumber: booking.tokenNumber, cropName: booking.crop.name, qualityStatus, acceptedQuantity, rejectedQuantity };
     });
+
+    if (result.success) {
+      try {
+        await notifyProcurementQualityCompleted({
+          farmerId: result.farmerId,
+          bookingId: result.bookingId,
+          tokenNumber: result.tokenNumber,
+          cropName: result.cropName,
+          qualityStatus: result.qualityStatus,
+          acceptedQuantity: result.acceptedQuantity,
+          rejectedQuantity: result.rejectedQuantity,
+        });
+      } catch (notifErr) {
+        console.error("Non-fatal quality completed notification error:", notifErr);
+      }
+    }
+
+    return { success: true };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : "Failed to complete quality inspection." };
   }

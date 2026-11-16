@@ -201,19 +201,28 @@ export async function createRentalBooking(rawInput: CreateBookingInput, testUser
         },
       });
 
-      // 6. Dispatch real-time notifications
-      await notifyMachineryBookingCreated({
+      return {
+        booking,
+        machineName: machine.name,
         farmerId,
         ownerId: machine.ownerId,
-        bookingId: booking.id,
-        bookingNumber: booking.bookingNumber,
-        machineName: machine.name,
         totalAmount: totalAmount.toNumber(),
-        tx,
-      });
-
-      return { booking, machineName: machine.name };
+      };
     });
+
+    // 6. Dispatch real-time notifications after transaction commit (Rule 3)
+    try {
+      await notifyMachineryBookingCreated({
+        farmerId: result.farmerId,
+        ownerId: result.ownerId,
+        bookingId: result.booking.id,
+        bookingNumber: result.booking.bookingNumber,
+        machineName: result.machineName,
+        totalAmount: result.totalAmount,
+      });
+    } catch (notifErr) {
+      console.error("Non-fatal machinery booking notification error:", notifErr);
+    }
 
     safeRevalidate("/farmer/machinery/bookings");
     safeRevalidate("/machinery/bookings");
@@ -285,21 +294,31 @@ export async function approveRentalBooking(bookingId: string, ownerNotes?: strin
         },
       });
 
-      await notifyMachineryBookingApproved({
+      return {
+        updated,
         farmerId: booking.farmerId,
         bookingId: booking.id,
         bookingNumber: booking.bookingNumber,
         machineName: booking.machinery.name,
-        tx,
-      });
-
-      return updated;
+      };
     });
+
+    // Dispatch notification after transaction commit (Rule 3)
+    try {
+      await notifyMachineryBookingApproved({
+        farmerId: result.farmerId,
+        bookingId: result.bookingId,
+        bookingNumber: result.bookingNumber,
+        machineName: result.machineName,
+      });
+    } catch (notifErr) {
+      console.error("Non-fatal machinery approval notification error:", notifErr);
+    }
 
     safeRevalidate("/machinery/bookings");
     safeRevalidate(`/farmer/machinery/bookings/${bookingId}`);
 
-    return { success: true, status: result.status };
+    return { success: true, status: result.updated.status };
   } catch (error: any) {
     console.error("Error approving rental booking:", error);
     return { success: false, error: error.message || "Failed to approve booking" };

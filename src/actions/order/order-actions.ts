@@ -190,7 +190,7 @@ export async function createOrder(
     // 2. Create OrderItems
     // 3. Deduct stock for each product
     // 4. Clear the cart
-    const createdOrders = await prisma.$transaction(async (tx) => {
+    const createdOrdersData = await prisma.$transaction(async (tx) => {
       const orders = [];
 
       for (const [shopId, itemsToCreate] of shopOrderMap.entries()) {
@@ -254,17 +254,20 @@ export async function createOrder(
         where: { cartId: cart.id },
       });
 
-      // 4. Send Notifications (Farmer & Shop Owners)
-      for (const { order: newOrder, shopId } of orders) {
+      return orders;
+    });
+
+    // 4. Send Notifications (Farmer & Shop Owners) after transaction commit (Rule 3)
+    for (const { order: newOrder, shopId } of createdOrdersData) {
+      try {
         await notifyOrderConfirmed({
           farmerId: userId,
           orderId: newOrder.id,
           orderNumber: newOrder.orderNumber,
           totalAmount: Number(newOrder.totalAmount),
-          tx,
         });
 
-        const shop = await tx.shop.findUnique({
+        const shop = await prisma.shop.findUnique({
           where: { id: shopId },
           select: { userId: true },
         });
@@ -274,13 +277,14 @@ export async function createOrder(
             orderId: newOrder.id,
             orderNumber: newOrder.orderNumber,
             totalAmount: Number(newOrder.totalAmount),
-            tx,
           });
         }
+      } catch (notifErr) {
+        console.error("Non-fatal order notification error:", notifErr);
       }
+    }
 
-      return orders.map(o => o.order);
-    });
+    const createdOrders = createdOrdersData.map((o) => o.order);
 
     revalidatePath("/farmer/cart");
     revalidatePath("/farmer/orders");

@@ -369,17 +369,19 @@ export async function updateShopOrderStatus(
           status: newParentStatus,
         },
       });
+    });
 
+    // 4. Post-transaction notification dispatch & delivery partner assignment (Rule 3)
+    try {
       if (targetStatus === "PROCESSING") {
         await notifyOrderProcessing({
           farmerId: order.userId,
           orderId: order.id,
           orderNumber: order.orderNumber,
-          tx,
         });
       } else if (targetStatus === "READY_FOR_DELIVERY") {
-        // Automatically assign Delivery Partner server-side
-        assignResult = await autoAssignOrderDelivery(orderId, tx);
+        // Automatically assign Delivery Partner server-side using its own dedicated transaction
+        assignResult = await autoAssignOrderDelivery(orderId);
 
         // If assignment is pending (no partner currently available), notify farmer that packing is done
         if (!assignResult.assigned) {
@@ -387,11 +389,12 @@ export async function updateShopOrderStatus(
             farmerId: order.userId,
             orderId: order.id,
             orderNumber: order.orderNumber,
-            tx,
           });
         }
       }
-    });
+    } catch (notifErr) {
+      console.error("Non-fatal fulfillment notification warning:", notifErr);
+    }
 
     // Revalidate paths for real-time reflection across seller, farmer, and delivery portals
     revalidatePath("/shop/orders");

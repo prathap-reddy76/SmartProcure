@@ -25,6 +25,7 @@ export default async function NotificationsPage({
     | "procurement"
     | "orders"
     | "delivery"
+    | "machinery"
     | "system";
 
   const result = await getNotifications({

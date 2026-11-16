@@ -115,7 +115,7 @@ export async function getNotifications({
   page?: number;
   limit?: number;
   unreadOnly?: boolean;
-  category?: "all" | "procurement" | "orders" | "delivery" | "system";
+  category?: "all" | "procurement" | "orders" | "delivery" | "machinery" | "system";
 }): Promise<{
   success: boolean;
   notifications: Array<{
@@ -197,6 +197,24 @@ export async function getNotifications({
           "DELIVERY_PICKED_UP",
           "DELIVERY_OUT_FOR_DELIVERY",
           "DELIVERY_DELIVERED",
+        ],
+      };
+    } else if (category === "machinery") {
+      whereClause.type = {
+        in: [
+          "MACHINERY_BOOKING_CREATED",
+          "MACHINERY_BOOKING_APPROVED",
+          "MACHINERY_BOOKING_REJECTED",
+          "MACHINERY_BOOKING_READY",
+          "MACHINERY_BOOKING_ACTIVE",
+          "MACHINERY_BOOKING_COMPLETED",
+          "MACHINERY_BOOKING_CANCELLED",
+          "MACHINERY_DELIVERY_ASSIGNED",
+          "MACHINERY_DELIVERY_PICKED_UP",
+          "MACHINERY_DELIVERY_DELIVERED",
+          "MACHINERY_RETURN_REQUESTED",
+          "MACHINERY_RETURN_PICKED_UP",
+          "MACHINERY_RETURN_COMPLETED",
         ],
       };
     } else if (category === "system") {

@@ -23,7 +23,7 @@ export async function createProcurementPayment(bookingId: string) {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const booking = await tx.procurementBooking.findUnique({
         where: { id: bookingId },
         include: { qualityInspection: true }
@@ -97,17 +97,33 @@ export async function createProcurementPayment(bookingId: string) {
       });
 
       await tx.auditLog.create({ data: { actorUserId: user.id, actorRole: "PROCUREMENT_OFFICER", action: "PROCUREMENT_SETTLEMENT_CREATED", entityType: "ProcurementPayment", entityId: payment.id, metadata: { netPayableAmount: roundedNet } } });
-      await notifyProcurementPaymentCreated({
-        farmerId: booking.farmerId,
+
+      return {
+        success: true,
         paymentId: payment.id,
+        farmerId: booking.farmerId,
         bookingId: booking.id,
         tokenNumber: booking.tokenNumber,
         netPayableAmount: roundedNet,
-        tx,
-      });
-
-      return { success: true, paymentId: payment.id };
+      };
     });
+
+    if (result.success && result.paymentId) {
+      try {
+        await notifyProcurementPaymentCreated({
+          farmerId: result.farmerId,
+          paymentId: result.paymentId,
+          bookingId: result.bookingId,
+          tokenNumber: result.tokenNumber,
+          netPayableAmount: result.netPayableAmount,
+        });
+      } catch (notifErr) {
+        console.error("Non-fatal payment created notification error:", notifErr);
+      }
+      return { success: true, paymentId: result.paymentId };
+    }
+
+    return result;
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : "Failed to create payment." };
   }
@@ -125,7 +141,7 @@ export async function processProcurementPayment(paymentId: string, paymentMethod
   if (!officer?.procurementCentreId) return { success: false, error: "Unauthorized." };
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const payment = await tx.procurementPayment.findUnique({
         where: { id: paymentId },
         include: { booking: true }
@@ -170,16 +186,32 @@ export async function processProcurementPayment(paymentId: string, paymentMethod
       });
 
       await tx.auditLog.create({ data: { actorUserId: user.id, actorRole: "PROCUREMENT_OFFICER", action: "PROCUREMENT_PAYMENT_COMPLETED", entityType: "ProcurementPayment", entityId: payment.id, metadata: { method: paymentMethod } } });
-      await notifyProcurementPaymentPaid({
+
+      return {
+        success: true,
+        transactionRef,
         farmerId: payment.farmerId,
         paymentId: payment.id,
         receiptNumber: receiptNo,
         netPayableAmount: Number(payment.netPayableAmount),
-        tx,
-      });
-
-      return { success: true, transactionRef };
+      };
     });
+
+    if (result.success && result.transactionRef) {
+      try {
+        await notifyProcurementPaymentPaid({
+          farmerId: result.farmerId,
+          paymentId: result.paymentId,
+          receiptNumber: result.receiptNumber,
+          netPayableAmount: result.netPayableAmount,
+        });
+      } catch (notifErr) {
+        console.error("Non-fatal payment paid notification error:", notifErr);
+      }
+      return { success: true, transactionRef: result.transactionRef };
+    }
+
+    return result;
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : "Failed to process payment." };
   }
@@ -197,7 +229,7 @@ export async function markPaymentFailed(paymentId: string) {
   if (!officer?.procurementCentreId) return { success: false, error: "Unauthorized." };
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const payment = await tx.procurementPayment.findUnique({ where: { id: paymentId, centreId: officer.procurementCentreId as string }});
       if (!payment) throw new Error("Payment not found");
 
@@ -216,15 +248,22 @@ export async function markPaymentFailed(paymentId: string) {
         }
       });
 
-      await notifyProcurementPaymentFailed({
-        farmerId: payment.farmerId,
-        paymentId: payment.id,
-        bookingId: payment.bookingId,
-        tx,
-      });
-
-      return { success: true };
+      return { success: true, farmerId: payment.farmerId, paymentId: payment.id, bookingId: payment.bookingId };
     });
+
+    if (result.success) {
+      try {
+        await notifyProcurementPaymentFailed({
+          farmerId: result.farmerId,
+          paymentId: result.paymentId,
+          bookingId: result.bookingId,
+        });
+      } catch (notifErr) {
+        console.error("Non-fatal payment failed notification error:", notifErr);
+      }
+    }
+
+    return { success: true };
   } catch (error: unknown) {
     return { success: false, error: "Failed to mark payment as failed." };
   }

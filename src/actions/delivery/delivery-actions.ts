@@ -863,29 +863,28 @@ export async function acceptDelivery(
           },
         });
 
-        // Notifications
-        if (existingAssignment.deliveryType === "ORDER" && existingAssignment.order) {
-          await notifyDeliveryAssigned({
-            partnerUserId: partner.userId,
-            farmerId: existingAssignment.order.userId,
-            orderId: existingAssignment.order.id,
-            orderNumber: existingAssignment.order.orderNumber,
-            tx,
-          });
-        } else if (existingAssignment.machineryBooking) {
-          await notifyMachineryDeliveryAssigned({
-            partnerUserId: partner.userId,
-            farmerId: existingAssignment.machineryBooking.farmerId,
-            ownerId: existingAssignment.machineryBooking.ownerId,
-            bookingId: existingAssignment.machineryBooking.id,
-            assignmentId: existingAssignment.id,
-            bookingNumber: existingAssignment.machineryBooking.bookingNumber,
-            machineName: existingAssignment.machineryBooking.machinery.name,
-            tx,
-          });
-        }
+        const notif = (existingAssignment.deliveryType === "ORDER" && existingAssignment.order)
+          ? {
+              type: "ORDER",
+              partnerUserId: partner.userId,
+              farmerId: existingAssignment.order.userId,
+              orderId: existingAssignment.order.id,
+              orderNumber: existingAssignment.order.orderNumber,
+            }
+          : existingAssignment.machineryBooking
+          ? {
+              type: "MACHINERY",
+              partnerUserId: partner.userId,
+              farmerId: existingAssignment.machineryBooking.farmerId,
+              ownerId: existingAssignment.machineryBooking.ownerId,
+              bookingId: existingAssignment.machineryBooking.id,
+              assignmentId: existingAssignment.id,
+              bookingNumber: existingAssignment.machineryBooking.bookingNumber,
+              machineName: existingAssignment.machineryBooking.machinery.name,
+            }
+          : null;
 
-        return { success: true };
+        return { success: true, notif };
       }
 
       // 3. Fallback: Order ready for delivery without assignment
@@ -928,16 +927,44 @@ export async function acceptDelivery(
         },
       });
 
-      await notifyDeliveryAssigned({
-        partnerUserId: partner.userId,
-        farmerId: order.userId,
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        tx,
-      });
-
-      return { success: true };
+      return {
+        success: true,
+        notif: {
+          type: "ORDER",
+          partnerUserId: partner.userId,
+          farmerId: order.userId,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+        },
+      };
     });
+
+    // Dispatch real-time notifications post-transaction (Rule 3)
+    if (result.notif) {
+      try {
+        const n = result.notif;
+        if (n.type === "ORDER") {
+          await notifyDeliveryAssigned({
+            partnerUserId: n.partnerUserId,
+            farmerId: n.farmerId,
+            orderId: n.orderId!,
+            orderNumber: n.orderNumber!,
+          });
+        } else if (n.type === "MACHINERY") {
+          await notifyMachineryDeliveryAssigned({
+            partnerUserId: n.partnerUserId,
+            farmerId: n.farmerId,
+            ownerId: n.ownerId!,
+            bookingId: n.bookingId!,
+            assignmentId: n.assignmentId!,
+            bookingNumber: n.bookingNumber!,
+            machineName: n.machineName!,
+          });
+        }
+      } catch (notifErr) {
+        console.error("Non-fatal delivery assigned notification error:", notifErr);
+      }
+    }
 
     safeRevalidate("/delivery/dashboard");
     safeRevalidate("/delivery/available");
@@ -945,7 +972,7 @@ export async function acceptDelivery(
     safeRevalidate(`/delivery/orders/${identifier}`);
     safeRevalidate(`/farmer/orders/${identifier}`);
 
-    return result;
+    return { success: true };
   } catch (error: unknown) {
     console.error("Error accepting delivery:", error);
     const msg = error instanceof Error ? error.message : "Failed to accept delivery.";
@@ -964,7 +991,7 @@ export async function confirmPickup(
   try {
     const { partner } = await getAuthorizedDeliveryPartner(testPartnerUserId);
 
-    await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const assignment = await tx.deliveryAssignment.findFirst({
         where: {
           OR: [
@@ -995,6 +1022,7 @@ export async function confirmPickup(
         },
       });
 
+      let notif: any = null;
       if (assignment.deliveryType === "ORDER" && assignment.order) {
         const orderWithShop = await tx.order.findUnique({
           where: { id: assignment.order.id },
@@ -1003,37 +1031,73 @@ export async function confirmPickup(
         const firstItem = orderWithShop?.items[0];
         const shopOwnerId = firstItem?.shop?.userId || firstItem?.product?.shop?.userId || undefined;
 
-        await notifyDeliveryPickedUp({
+        notif = {
+          type: "ORDER",
           farmerId: assignment.order.userId,
           shopOwnerId,
           orderId: assignment.order.id,
           orderNumber: assignment.order.orderNumber,
-          tx,
-        });
+        };
       } else if (assignment.machineryBooking) {
         if (assignment.deliveryType === "MACHINERY_RETURN") {
-          await notifyMachineryReturnPickedUp({
+          notif = {
+            type: "MACHINERY_RETURN",
             ownerId: assignment.machineryBooking.ownerId,
             farmerId: assignment.machineryBooking.farmerId,
             bookingId: assignment.machineryBooking.id,
             assignmentId: assignment.id,
             bookingNumber: assignment.machineryBooking.bookingNumber,
             machineName: assignment.machineryBooking.machinery.name,
-            tx,
-          });
+          };
         } else {
-          await notifyMachineryDeliveryPickedUp({
+          notif = {
+            type: "MACHINERY_DELIVERY",
             farmerId: assignment.machineryBooking.farmerId,
             ownerId: assignment.machineryBooking.ownerId,
             bookingId: assignment.machineryBooking.id,
             assignmentId: assignment.id,
             bookingNumber: assignment.machineryBooking.bookingNumber,
             machineName: assignment.machineryBooking.machinery.name,
-            tx,
-          });
+          };
         }
       }
+
+      return { success: true, notif };
     });
+
+    // Dispatch real-time notifications post-transaction (Rule 3)
+    if (result.notif) {
+      try {
+        if (result.notif.type === "ORDER") {
+          await notifyDeliveryPickedUp({
+            farmerId: result.notif.farmerId,
+            shopOwnerId: result.notif.shopOwnerId,
+            orderId: result.notif.orderId,
+            orderNumber: result.notif.orderNumber,
+          });
+        } else if (result.notif.type === "MACHINERY_RETURN") {
+          await notifyMachineryReturnPickedUp({
+            ownerId: result.notif.ownerId,
+            farmerId: result.notif.farmerId,
+            bookingId: result.notif.bookingId,
+            assignmentId: result.notif.assignmentId,
+            bookingNumber: result.notif.bookingNumber,
+            machineName: result.notif.machineName,
+          });
+        } else if (result.notif.type === "MACHINERY_DELIVERY") {
+          await notifyMachineryDeliveryPickedUp({
+            farmerId: result.notif.farmerId,
+            ownerId: result.notif.ownerId,
+            bookingId: result.notif.bookingId,
+            assignmentId: result.notif.assignmentId,
+            bookingNumber: result.notif.bookingNumber,
+            machineName: result.notif.machineName,
+          });
+        }
+      } catch (notifErr) {
+        console.error("Non-fatal pickup notification error:", notifErr);
+      }
+    }
 
     safeRevalidate("/delivery/dashboard");
     safeRevalidate("/delivery/orders");
@@ -1058,7 +1122,7 @@ export async function markOutForDelivery(
   try {
     const { partner } = await getAuthorizedDeliveryPartner(testPartnerUserId);
 
-    await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const assignment = await tx.deliveryAssignment.findFirst({
         where: {
           OR: [
@@ -1091,20 +1155,30 @@ export async function markOutForDelivery(
         },
       });
 
+      let notif: any = null;
       if (assignment.deliveryType === "ORDER" && assignment.order) {
         await tx.order.update({
           where: { id: assignment.order.id },
           data: { status: "OUT_FOR_DELIVERY" },
         });
 
-        await notifyDeliveryOutForDelivery({
+        notif = {
           farmerId: assignment.order.userId,
           orderId: assignment.order.id,
           orderNumber: assignment.order.orderNumber,
-          tx,
-        });
+        };
       }
+
+      return { success: true, notif };
     });
+
+    if (result.notif) {
+      await notifyDeliveryOutForDelivery({
+        farmerId: result.notif.farmerId,
+        orderId: result.notif.orderId,
+        orderNumber: result.notif.orderNumber,
+      });
+    }
 
     safeRevalidate("/delivery/dashboard");
     safeRevalidate("/delivery/orders");
@@ -1134,7 +1208,7 @@ export async function markDelivered(
   try {
     const { partner } = await getAuthorizedDeliveryPartner(testPartnerUserId);
 
-    await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const assignment = await tx.deliveryAssignment.findFirst({
         where: {
           OR: [
@@ -1173,6 +1247,7 @@ export async function markDelivered(
       await tx.deliveryAssignment.update({ where: { id: assignment.id }, data: { status: finalStatus, deliveredAt: new Date(), recipientName: options?.recipientName || null, proofImageUrl: options?.proofImageUrl || null } });
         await tx.auditLog.create({ data: { actorUserId: partner.userId, actorRole: "DELIVERY_PARTNER", action: finalStatus === "RETURNED" ? "DELIVERY_RETURNED" : "DELIVERY_COMPLETED", entityType: "DeliveryAssignment", entityId: assignment.id, metadata: { recipientName: options?.recipientName || null } } });
 
+      let notif: any = null;
       if (assignment.deliveryType === "ORDER" && assignment.order) {
         await tx.order.update({
           where: { id: assignment.order.id },
@@ -1194,13 +1269,13 @@ export async function markDelivered(
         const firstItem = orderWithShop?.items[0];
         const shopOwnerId = firstItem?.shop?.userId || firstItem?.product?.shop?.userId || undefined;
 
-        await notifyDeliveryDelivered({
+        notif = {
+          type: "ORDER",
           farmerId: assignment.order.userId,
           shopOwnerId,
           orderId: assignment.order.id,
           orderNumber: assignment.order.orderNumber,
-          tx,
-        });
+        };
       } else if (assignment.machineryBooking) {
         const booking = assignment.machineryBooking;
         if (isReturn) {
@@ -1210,15 +1285,15 @@ export async function markDelivered(
             data: { status: "COMPLETED" },
           });
 
-          await notifyMachineryReturnCompleted({
+          notif = {
+            type: "MACHINERY_RETURN",
             ownerId: booking.ownerId,
             farmerId: booking.farmerId,
             bookingId: booking.id,
             assignmentId: assignment.id,
             bookingNumber: booking.bookingNumber,
             machineName: booking.machinery.name,
-            tx,
-          });
+          };
         } else {
           // Outbound delivery delivered -> Mark booking ACTIVE or READY
           await tx.machineryBooking.update({
@@ -1226,18 +1301,54 @@ export async function markDelivered(
             data: { status: "ACTIVE" },
           });
 
-          await notifyMachineryDeliveryDelivered({
+          notif = {
+            type: "MACHINERY_DELIVERY",
             farmerId: booking.farmerId,
             ownerId: booking.ownerId,
             bookingId: booking.id,
             assignmentId: assignment.id,
             bookingNumber: booking.bookingNumber,
             machineName: booking.machinery.name,
-            tx,
-          });
+          };
         }
       }
+
+      return { success: true, notif };
     });
+
+    // Dispatch notifications post-transaction (Rule 3)
+    if (result.notif) {
+      try {
+        if (result.notif.type === "ORDER") {
+          await notifyDeliveryDelivered({
+            farmerId: result.notif.farmerId,
+            shopOwnerId: result.notif.shopOwnerId,
+            orderId: result.notif.orderId,
+            orderNumber: result.notif.orderNumber,
+          });
+        } else if (result.notif.type === "MACHINERY_RETURN") {
+          await notifyMachineryReturnCompleted({
+            ownerId: result.notif.ownerId,
+            farmerId: result.notif.farmerId,
+            bookingId: result.notif.bookingId,
+            assignmentId: result.notif.assignmentId,
+            bookingNumber: result.notif.bookingNumber,
+            machineName: result.notif.machineName,
+          });
+        } else if (result.notif.type === "MACHINERY_DELIVERY") {
+          await notifyMachineryDeliveryDelivered({
+            farmerId: result.notif.farmerId,
+            ownerId: result.notif.ownerId,
+            bookingId: result.notif.bookingId,
+            assignmentId: result.notif.assignmentId,
+            bookingNumber: result.notif.bookingNumber,
+            machineName: result.notif.machineName,
+          });
+        }
+      } catch (notifErr) {
+        console.error("Non-fatal delivered notification error:", notifErr);
+      }
+    }
 
     safeRevalidate("/delivery/dashboard");
     safeRevalidate("/delivery/orders");
@@ -1267,7 +1378,7 @@ export async function recordDeliveryException(
       return { error: "Please provide a valid reason for the delivery exception." };
     }
 
-    await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const assignment = await tx.deliveryAssignment.findUnique({
         where: { id: assignmentId },
         include: {
@@ -1287,15 +1398,21 @@ export async function recordDeliveryException(
       const orderNumber = assignment.order?.orderNumber || assignment.machineryBooking?.bookingNumber || "DELIVERY";
       const farmerId = assignment.order?.userId || assignment.machineryBooking?.farmerId || null;
 
-      await notifyDeliveryException({
-        partnerUserId: partner.userId,
-        farmerId,
-        assignmentId: assignment.id,
-        orderNumber,
-        reason: reason.trim(),
-        tx,
-      });
+      return {
+        success: true,
+        notif: {
+          partnerUserId: partner.userId,
+          farmerId,
+          assignmentId: assignment.id,
+          orderNumber,
+          reason: reason.trim(),
+        },
+      };
     });
+
+    if (result.notif) {
+      await notifyDeliveryException(result.notif);
+    }
 
     safeRevalidate("/delivery/dashboard");
     safeRevalidate("/delivery/orders");
@@ -1315,7 +1432,7 @@ export async function rescheduleDelivery(assignmentId: string, newWindow: string
       return { error: "Delivery window is required." };
     }
 
-    await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const assignment = await tx.deliveryAssignment.findUnique({
         where: { id: assignmentId },
         include: {
@@ -1356,15 +1473,21 @@ export async function rescheduleDelivery(assignmentId: string, newWindow: string
       const orderNumber = assignment.order?.orderNumber || assignment.machineryBooking?.bookingNumber || "DELIVERY";
       const farmerId = assignment.order?.userId || assignment.machineryBooking?.farmerId || null;
 
-      await notifyDeliveryRescheduled({
-        partnerUserId: assignment.deliveryPartner?.userId || null,
-        farmerId,
-        assignmentId: assignment.id,
-        orderNumber,
-        newWindow: newWindow.trim(),
-        tx,
-      });
+      return {
+        success: true,
+        notif: {
+          partnerUserId: assignment.deliveryPartner?.userId || null,
+          farmerId,
+          assignmentId: assignment.id,
+          orderNumber,
+          newWindow: newWindow.trim(),
+        },
+      };
     });
+
+    if (result.notif) {
+      await notifyDeliveryRescheduled(result.notif);
+    }
 
     safeRevalidate("/delivery/dashboard");
     safeRevalidate("/delivery/orders");
@@ -1787,7 +1910,7 @@ export async function assignDelivery(
   try {
     const adminUser = await getAdminUser(testAdminUserId);
 
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // 1. Fetch assignment record (by assignmentId or orderId)
       let assignment = await tx.deliveryAssignment.findFirst({
         where: {
@@ -2011,35 +2134,37 @@ export async function assignDelivery(
         // Non-blocking audit log
       }
 
-      // 5. Notifications
+      // 5. Notifications data preparation
       const firstItem = assignment.order?.items?.[0];
       const shopOwnerId =
         firstItem?.shop?.userId ||
         firstItem?.product?.shop?.userId ||
         undefined;
 
+      let notif: any = null;
       if (isReassignment) {
-        await notifyDeliveryReassigned({
+        notif = {
+          type: "REASSIGNED",
           newPartnerUserId: partner.userId,
           previousPartnerUserId: previousPartner?.userId,
           farmerId: assignment.order?.userId,
           shopOwnerId,
           orderId: assignment.order?.id || assignment.id,
           orderNumber,
-          tx,
-        });
+        };
       } else {
         if (assignment.deliveryType === "ORDER" && assignment.order) {
-          await notifyDeliveryAssigned({
+          notif = {
+            type: "ORDER",
             partnerUserId: partner.userId,
             farmerId: assignment.order.userId,
             shopOwnerId,
             orderId: assignment.order.id,
             orderNumber: assignment.order.orderNumber,
-            tx,
-          });
+          };
         } else if (assignment.machineryBooking) {
-          await notifyMachineryDeliveryAssigned({
+          notif = {
+            type: "MACHINERY",
             partnerUserId: partner.userId,
             farmerId: assignment.machineryBooking.farmerId,
             ownerId: assignment.machineryBooking.ownerId,
@@ -2047,8 +2172,7 @@ export async function assignDelivery(
             assignmentId: assignment.id,
             bookingNumber: assignment.machineryBooking.bookingNumber,
             machineName: assignment.machineryBooking.machinery.name,
-            tx,
-          });
+          };
         }
       }
 
@@ -2058,8 +2182,46 @@ export async function assignDelivery(
         message: isReassignment
           ? `Delivery #${orderNumber} successfully reassigned to ${partner.user.name || "partner"}.`
           : `Delivery #${orderNumber} successfully assigned to ${partner.user.name || "partner"}.`,
+        notif,
       };
     });
+
+    if (result.notif) {
+      if (result.notif.type === "REASSIGNED") {
+        await notifyDeliveryReassigned({
+          newPartnerUserId: result.notif.newPartnerUserId,
+          previousPartnerUserId: result.notif.previousPartnerUserId,
+          farmerId: result.notif.farmerId,
+          shopOwnerId: result.notif.shopOwnerId,
+          orderId: result.notif.orderId,
+          orderNumber: result.notif.orderNumber,
+        });
+      } else if (result.notif.type === "ORDER") {
+        await notifyDeliveryAssigned({
+          partnerUserId: result.notif.partnerUserId,
+          farmerId: result.notif.farmerId,
+          shopOwnerId: result.notif.shopOwnerId,
+          orderId: result.notif.orderId,
+          orderNumber: result.notif.orderNumber,
+        });
+      } else if (result.notif.type === "MACHINERY") {
+        await notifyMachineryDeliveryAssigned({
+          partnerUserId: result.notif.partnerUserId,
+          farmerId: result.notif.farmerId,
+          ownerId: result.notif.ownerId,
+          bookingId: result.notif.bookingId,
+          assignmentId: result.notif.assignmentId,
+          bookingNumber: result.notif.bookingNumber,
+          machineName: result.notif.machineName,
+        });
+      }
+    }
+
+    return {
+      success: result.success,
+      isReassignment: result.isReassignment,
+      message: result.message,
+    };
   } catch (error: unknown) {
     if (isRedirectError(error)) throw error;
     console.error("Error assigning delivery:", error);
@@ -2123,7 +2285,7 @@ export async function cancelDeliveryAssignment(
   try {
     await getAdminUser(testAdminUserId);
 
-    await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const assignment = await tx.deliveryAssignment.findUnique({
         where: { id: assignmentId },
         include: {
@@ -2148,15 +2310,21 @@ export async function cancelDeliveryAssignment(
       const orderNumber = assignment.order?.orderNumber || assignment.machineryBooking?.bookingNumber || "DELIVERY";
       const farmerId = assignment.order?.userId || assignment.machineryBooking?.farmerId || null;
 
-      await notifyDeliveryCancelled({
-        partnerUserId: assignment.deliveryPartner?.userId || null,
-        farmerId,
-        assignmentId: assignment.id,
-        orderNumber,
-        reason,
-        tx,
-      });
+      return {
+        success: true,
+        notif: {
+          partnerUserId: assignment.deliveryPartner?.userId || null,
+          farmerId,
+          assignmentId: assignment.id,
+          orderNumber,
+          reason,
+        },
+      };
     });
+
+    if (result.notif) {
+      await notifyDeliveryCancelled(result.notif);
+    }
 
     safeRevalidate("/admin/logistics");
     safeRevalidate("/delivery/dashboard");
@@ -2290,6 +2458,7 @@ export interface AutoAssignResult {
   partnerPhone?: string | null;
   status: DeliveryStatus;
   message: string;
+  notif?: any;
 }
 
 export async function autoAssignOrderDelivery(
@@ -2446,19 +2615,11 @@ export async function autoAssignOrderDelivery(
       });
       const assignmentId = pendingAssignment.id;
 
-      // Notify shop owner and admin of pending logistics assignment
+      // Prepare pending logistics notification data
       const shopOwnerId = shop?.userId || firstItem?.shop?.userId || null;
       const adminUser = await tx.user.findFirst({
         where: { role: "ADMIN", isActive: true },
         select: { id: true },
-      });
-
-      await notifyDeliveryPendingAssignment({
-        shopOwnerId: shopOwnerId || undefined,
-        adminUserId: adminUser?.id,
-        orderId: order.id,
-        orderNumber: order.orderNumber,
-        tx,
       });
 
       return {
@@ -2467,6 +2628,13 @@ export async function autoAssignOrderDelivery(
         assignmentId,
         status: "PENDING_ASSIGNMENT",
         message: "Order packed. Delivery partner assignment pending (no partner currently available).",
+        notif: {
+          type: "PENDING",
+          shopOwnerId: shopOwnerId || undefined,
+          adminUserId: adminUser?.id,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+        },
       };
     }
 
@@ -2599,16 +2767,8 @@ export async function autoAssignOrderDelivery(
       // Audit log non-blocking
     }
 
-    // 9. Dispatch Centralized Notifications (Delivery Partner, Farmer, & Shop Owner)
+    // 9. Prepare Centralized Notifications data
     const shopOwnerId = shop?.userId || firstItem?.shop?.userId || undefined;
-    await notifyDeliveryAssigned({
-      partnerUserId: selectedPartner.userId,
-      farmerId: order.userId,
-      shopOwnerId,
-      orderId: order.id,
-      orderNumber: order.orderNumber,
-      tx,
-    });
 
     return {
       success: true,
@@ -2619,23 +2779,57 @@ export async function autoAssignOrderDelivery(
       partnerPhone: selectedPartner.phone || selectedPartner.user.phone || null,
       status: "ASSIGNED",
       message: `Delivery partner ${selectedPartner.user.name || "assigned"} automatically assigned.`,
+      notif: {
+        type: "ASSIGNED",
+        partnerUserId: selectedPartner.userId,
+        farmerId: order.userId,
+        shopOwnerId,
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+      },
     };
   };
 
+  let res: AutoAssignResult & { notif?: any };
   if (externalTx) {
-    return runner(externalTx);
+    res = await runner(externalTx);
   } else {
-    return prisma.$transaction(async (tx) => {
-      const res = await runner(tx);
-      safeRevalidate("/delivery/dashboard");
-      safeRevalidate("/delivery/available");
-      safeRevalidate("/delivery/orders");
-      safeRevalidate(`/delivery/orders/${orderId}`);
-      safeRevalidate(`/farmer/orders/${orderId}`);
-      safeRevalidate(`/shop/orders/${orderId}`);
-      return res;
+    res = await prisma.$transaction(async (tx) => {
+      return await runner(tx);
     });
   }
+
+  // Dispatch notifications post-transaction (Rule 3)
+  if (res.notif) {
+    try {
+      if (res.notif.type === "PENDING") {
+        await notifyDeliveryPendingAssignment({
+          shopOwnerId: res.notif.shopOwnerId,
+          adminUserId: res.notif.adminUserId,
+          orderId: res.notif.orderId,
+          orderNumber: res.notif.orderNumber,
+        });
+      } else if (res.notif.type === "ASSIGNED") {
+        await notifyDeliveryAssigned({
+          partnerUserId: res.notif.partnerUserId,
+          farmerId: res.notif.farmerId,
+          shopOwnerId: res.notif.shopOwnerId,
+          orderId: res.notif.orderId,
+          orderNumber: res.notif.orderNumber,
+        });
+      }
+    } catch (notifErr) {
+      console.error("Non-fatal auto-assign notification error:", notifErr);
+    }
+  }
+
+  safeRevalidate("/delivery/dashboard");
+  safeRevalidate("/delivery/available");
+  safeRevalidate("/delivery/orders");
+  safeRevalidate(`/delivery/orders/${orderId}`);
+  safeRevalidate(`/farmer/orders/${orderId}`);
+  safeRevalidate(`/shop/orders/${orderId}`);
+  return res;
 }
 
 /**

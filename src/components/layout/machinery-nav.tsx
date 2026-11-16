@@ -133,6 +133,15 @@ export function MachineryNav({
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
 
+  const handleSignOut = async () => {
+    try {
+      await signOut({ redirect: false });
+      window.location.href = "/login";
+    } catch {
+      window.location.href = "/login";
+    }
+  };
+
   return (
     <>
       {/* Mobile Header Bar */}
@@ -165,7 +174,7 @@ export function MachineryNav({
               ownerEmail={ownerEmail}
               pathname={pathname}
               onClose={() => setIsOpen(false)}
-              onSignOut={() => signOut({ callbackUrl: "/login" })}
+              onSignOut={handleSignOut}
             />
           </div>
         </div>
@@ -177,7 +186,7 @@ export function MachineryNav({
           ownerName={ownerName}
           ownerEmail={ownerEmail}
           pathname={pathname}
-          onSignOut={() => signOut({ callbackUrl: "/login" })}
+          onSignOut={handleSignOut}
         />
       </aside>
     </>

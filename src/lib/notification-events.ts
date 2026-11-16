@@ -1,6 +1,7 @@
 import { Client } from "pg";
 import { prisma } from "./prisma";
 import { env } from "./env";
+import { Prisma } from "@prisma/client";
 
 export type NotificationCategory = "procurement" | "orders" | "delivery" | "machinery" | "system";
 
@@ -65,10 +66,10 @@ export function setupPgListener() {
     console.log("Connected to PostgreSQL for LISTEN/NOTIFY pub/sub");
     client.query("LISTEN smartprocure_notifications");
   }).catch((err) => {
-    console.error("Failed to connect pg listener:", err);
+    console.warn("PostgreSQL LISTEN not active (polling fallback enabled):", err.message || err);
     globalForNotifications.pgListener = undefined;
     if (!globalForNotifications.isIntentionalShutdown) {
-      setTimeout(setupPgListener, 5000);
+      setTimeout(setupPgListener, 30000);
     }
   });
 
@@ -110,27 +111,35 @@ export function getNotificationCategory(type: string): NotificationCategory {
 
 /**
  * Publishes a real-time notification event via Postgres NOTIFY to reach all instances.
+ * If an active transaction client (tx) is provided, reuses its connection to avoid connection pool starvation.
  */
 export async function publishNotificationEvent(
   userId: string,
-  event: Omit<RealtimeNotificationEvent, "userId">
+  event: Omit<RealtimeNotificationEvent, "userId">,
+  tx?: Prisma.TransactionClient
 ): Promise<void> {
   const fullEvent = { ...event, userId, __instanceId: instanceId };
   const payload = JSON.stringify(fullEvent);
   
-  // Dispatch locally immediately for synchronous listeners (e.g. tests)
+  // Dispatch locally immediately for connected SSE subscribers
   const userSubs = subscribers.get(userId);
   if (userSubs) {
     for (const listener of userSubs) {
-      listener(fullEvent as RealtimeNotificationEvent);
+      try {
+        listener(fullEvent as RealtimeNotificationEvent);
+      } catch (e) {
+        console.warn("Error in subscriber callback:", e);
+      }
     }
   }
 
-  // Use Prisma to send NOTIFY for cross-instance
+  // Cross-instance broadcast via PostgreSQL NOTIFY
+  // Reuses tx connection when active, or falls back to global prisma client
+  const db = tx || prisma;
   try {
-    await prisma.$executeRaw`SELECT pg_notify('smartprocure_notifications', ${payload})`;
+    await db.$executeRaw`SELECT pg_notify('smartprocure_notifications', ${payload})`;
   } catch (err) {
-    console.error("Failed to publish pg notification:", err);
+    console.warn("PostgreSQL pg_notify non-fatal dispatch warning:", err instanceof Error ? err.message : err);
   }
 }
 

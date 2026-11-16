@@ -104,7 +104,7 @@ export async function registerArrival(bookingId: string) {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const booking = await tx.procurementBooking.findUnique({
         where: { id: bookingId }
       });
@@ -143,17 +143,32 @@ export async function registerArrival(bookingId: string) {
         }
       });
 
-      await notifyProcurementArrival({
+      return {
+        success: true,
         farmerId: booking.farmerId,
         bookingId: booking.id,
         tokenNumber: booking.tokenNumber,
-        centreName: "Procurement Centre",
-      });
+      };
+    });
+
+    if (result.success) {
+      try {
+        await notifyProcurementArrival({
+          farmerId: result.farmerId,
+          bookingId: result.bookingId,
+          tokenNumber: result.tokenNumber,
+          centreName: "Procurement Centre",
+        });
+      } catch (notifErr) {
+        console.error("Non-fatal arrival notification error:", notifErr);
+      }
 
       revalidatePath("/procurement-officer/queue");
       revalidatePath("/procurement-officer/dashboard");
       return { success: true };
-    });
+    }
+
+    return result;
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : "Failed to register arrival." };
   }

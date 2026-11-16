@@ -167,7 +167,12 @@ export function ShopNav({ shopName, ownerName, ownerEmail }: ShopNavProps) {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleSignOut = async () => {
-    await signOut({ callbackUrl: "/login" });
+    try {
+      await signOut({ redirect: false });
+      window.location.href = "/login";
+    } catch {
+      window.location.href = "/login";
+    }
   };
 
   return (

@@ -22,7 +22,7 @@ export async function bookProcurementSlot(data: BookProcurementSlotValues): Prom
     // Validate Input
     const validatedData = bookProcurementSlotSchema.parse(data);
 
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       // 1. Verify centre exists and is active
       const centre = await tx.procurementCentre.findUnique({
         where: { id: validatedData.centreId }
@@ -95,19 +95,33 @@ export async function bookProcurementSlot(data: BookProcurementSlotValues): Prom
         }
       });
 
-      // 8. Send real-time notification
-      await notifyProcurementBookingCreated({
-        farmerId: user.id,
+      return {
+        success: true,
         bookingId: newBooking.id,
         tokenNumber,
         cropName: cropConfig.crop.name,
         centreName: centre.name,
         slotDate: slot.date,
-        tx,
-      });
-
-      return { success: true, bookingId: newBooking.id };
+      };
     });
+
+    // 8. Send real-time notification after transaction completion (Rule 3)
+    if (result.success && result.bookingId) {
+      try {
+        await notifyProcurementBookingCreated({
+          farmerId: user.id,
+          bookingId: result.bookingId,
+          tokenNumber: result.tokenNumber,
+          cropName: result.cropName,
+          centreName: result.centreName,
+          slotDate: result.slotDate,
+        });
+      } catch (notifErr) {
+        console.error("Non-fatal booking notification error:", notifErr);
+      }
+    }
+
+    return { success: true, bookingId: result.bookingId };
 
   } catch (error: unknown) {
     console.error("Booking error:", error);

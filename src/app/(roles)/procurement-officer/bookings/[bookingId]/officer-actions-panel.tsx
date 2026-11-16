@@ -21,7 +21,7 @@ export function OfficerActionsPanel({ bookingId, status, payment, qualityInspect
     if (res.success) {
       router.refresh();
     } else {
-      setError('error' in res ? res.error : "Failed to register arrival.");
+      setError(('error' in res && res.error) ? res.error : "Failed to register arrival.");
     }
     setIsLoading(false);
   };
@@ -30,10 +30,10 @@ export function OfficerActionsPanel({ bookingId, status, payment, qualityInspect
     setIsLoading(true);
     setError(null);
     const res = await startWeighing(bookingId);
-    if (res.success) {
+    if (res && res.success) {
       router.refresh();
     } else {
-      setError('error' in res ? res.error : "Failed to start weighing.");
+      setError(res && 'error' in res && res.error ? String(res.error) : "Failed to start weighing.");
     }
     setIsLoading(false);
   };
@@ -50,7 +50,7 @@ export function OfficerActionsPanel({ bookingId, status, payment, qualityInspect
     if (res.success) {
       router.refresh();
     } else {
-      setError('error' in res ? res.error : "Failed to submit weighing.");
+      setError(('error' in res && res.error) ? res.error : "Failed to submit weighing.");
     }
     setIsLoading(false);
   };
@@ -157,8 +157,8 @@ export function OfficerActionsPanel({ bookingId, status, payment, qualityInspect
               setIsLoading(true); setError(null);
               const { startQualityInspection } = await import("@/actions/procurement/quality-actions");
               const res = await startQualityInspection(bookingId);
-              if (res.success) router.refresh();
-              else setError('error' in res && res.error ? String(res.error) : "Failed to start quality inspection.");
+              if (res && res.success) router.refresh();
+              else setError(res && 'error' in res && res.error ? String(res.error) : "Failed to start quality inspection.");
               setIsLoading(false);
             }}
             disabled={isLoading}

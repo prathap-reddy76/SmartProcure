@@ -67,7 +67,7 @@ export function ProductCard({ product }: { product: MarketplaceProductItem }) {
           {/* Category Tag on bottom left */}
           <div className="absolute bottom-2.5 left-2.5">
             <span className="bg-white/90 text-gray-900 font-semibold text-[10px] uppercase tracking-wider px-2 py-0.5 rounded shadow-xs backdrop-blur-xs border border-white/40">
-              {product.category.name}
+              {product.category?.name || "Agri Supply"}
             </span>
           </div>
         </div>
@@ -82,12 +82,16 @@ export function ProductCard({ product }: { product: MarketplaceProductItem }) {
           {/* Seller / Shop */}
           <p className="text-xs text-gray-500 truncate flex items-center gap-1">
             <span className="text-gray-400">Sold by:</span>
-            <Link
-              href={`/farmer/marketplace/shops/${product.shop.id}`}
-              className="font-semibold text-green-700 hover:text-green-900 hover:underline transition-colors"
-            >
-              {product.shop.name}
-            </Link>
+            {product.shop?.id ? (
+              <Link
+                href={`/farmer/marketplace/shops/${product.shop.id}`}
+                className="font-semibold text-green-700 hover:text-green-900 hover:underline transition-colors"
+              >
+                {product.shop.name}
+              </Link>
+            ) : (
+              <span className="font-semibold text-gray-600">Local Dealer</span>
+            )}
           </p>
 
           {/* Highlights */}

@@ -20,7 +20,7 @@ export async function startWeighing(bookingId: string) {
   }
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const booking = await tx.procurementBooking.findUnique({
         where: { id: bookingId }
       });
@@ -34,6 +34,7 @@ export async function startWeighing(bookingId: string) {
 
       return { success: true };
     });
+    return result;
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : "Failed to start weighing." };
   }
@@ -59,7 +60,7 @@ export async function submitWeighing(bookingId: string, grossWeight: number, tar
   const netWeight = grossWeight - tareWeight;
 
   try {
-    return await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       const booking = await tx.procurementBooking.findUnique({
         where: { id: bookingId }
       });
@@ -94,16 +95,23 @@ export async function submitWeighing(bookingId: string, grossWeight: number, tar
       });
 
       await tx.auditLog.create({ data: { actorUserId: user.id, actorRole: "PROCUREMENT_OFFICER", action: "PROCUREMENT_WEIGHING_COMPLETED", entityType: "ProcurementBooking", entityId: booking.id, metadata: { grossWeight, tareWeight, netWeight } } });
-      await notifyProcurementWeighingCompleted({
-        farmerId: booking.farmerId,
-        bookingId: booking.id,
-        tokenNumber: booking.tokenNumber,
-        netWeight,
-        tx,
-      });
-
-      return { success: true };
+      return { success: true, farmerId: booking.farmerId, bookingId: booking.id, tokenNumber: booking.tokenNumber };
     });
+
+    if (result.success) {
+      try {
+        await notifyProcurementWeighingCompleted({
+          farmerId: result.farmerId,
+          bookingId: result.bookingId,
+          tokenNumber: result.tokenNumber,
+          netWeight,
+        });
+      } catch (notifErr) {
+        console.error("Non-fatal weighing notification error:", notifErr);
+      }
+    }
+
+    return { success: true };
   } catch (error: unknown) {
     return { success: false, error: error instanceof Error ? error.message : "Failed to submit weighing." };
   }

@@ -223,7 +223,8 @@ export function FarmerNav({
   const handleSignOut = async () => {
     setIsSigningOut(true);
     try {
-      await signOut({ callbackUrl: "/login", redirect: true });
+      await signOut({ redirect: false });
+      window.location.href = "/login";
     } catch {
       window.location.href = "/login";
     }

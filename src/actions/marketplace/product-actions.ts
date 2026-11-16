@@ -185,28 +185,26 @@ export async function getMarketplaceProducts(
       orderBy = [{ stock: "desc" }, { createdAt: "desc" }];
     }
 
-    const [total, rawProducts] = await Promise.all([
-      prisma.product.count({ where }),
-      prisma.product.findMany({
-        where,
-        include: {
-          category: {
-            select: { id: true, name: true, slug: true },
-          },
-          shop: {
-            select: { id: true, name: true, shopType: true, district: true, state: true },
-          },
-          images: {
-            take: 1,
-            orderBy: { sortOrder: "asc" },
-            select: { imageUrl: true },
-          },
+    const total = await prisma.product.count({ where });
+    const rawProducts = await prisma.product.findMany({
+      where,
+      include: {
+        category: {
+          select: { id: true, name: true, slug: true },
         },
-        orderBy,
-        skip,
-        take: limit,
-      }),
-    ]);
+        shop: {
+          select: { id: true, name: true, shopType: true, district: true, state: true },
+        },
+        images: {
+          take: 1,
+          orderBy: { sortOrder: "asc" },
+          select: { imageUrl: true },
+        },
+      },
+      orderBy,
+      skip,
+      take: limit,
+    });
 
     const defaultPlaceholder =
       "https://images.unsplash.com/photo-1592417817098-8f3d6910985b?auto=format&fit=crop&w=600&q=80";

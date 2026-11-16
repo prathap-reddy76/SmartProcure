@@ -5,13 +5,147 @@ import { prisma } from "@/lib/prisma";
 import { NotificationType, Prisma } from "@prisma/client"; 
 import { dispatchExternalNotifications } from "@/lib/notifications/providers"; 
 import {   publishNotificationEvent,   getNotificationCategory, } from "@/lib/notification-events";  
+const inFlightNotifications = new Map<string, Promise<any>>();
+
 export interface CreateNotificationParams {   userId: string;   type: NotificationType;   title: string;   message: string;   entityType?: string;   entityId?: string;   targetUrl?: string;   eventKey?: string; }  /**  * Central notification creation service with duplicate protection.  */ 
 
-export async function sendNotification(   params: CreateNotificationParams,   tx?: Prisma.TransactionClient ) {   const db = tx || prisma;   
-/* Deduplication check: if eventKey is provided, check if already notified for this user */
-   if (params.eventKey) {     const existing = await db.notification.findFirst({       where: {         userId: params.userId,         eventKey: params.eventKey,       },     });     if (existing) {       return existing;     }   }    const notification = await db.notification.create({     data: {       userId: params.userId,       type: params.type,       title: params.title,       message: params.message,       entityType: params.entityType,       entityId: params.entityId,       targetUrl: params.targetUrl,       eventKey: params.eventKey,     },   });   
-/* Real-time broadcast to active subscribers */
-   try {     publishNotificationEvent(params.userId, {       notificationId: notification.id,       type: notification.type,       category: getNotificationCategory(notification.type),       title: notification.title,       message: notification.message,       entityType: notification.entityType,       entityId: notification.entityId,       targetUrl: notification.targetUrl,       createdAt: notification.createdAt.toISOString(),     });   } catch (err) {     console.error("Failed to publish real-time notification event:", err);   }    return notification; } 
+export async function sendNotification(
+  params: CreateNotificationParams,
+  tx?: Prisma.TransactionClient
+): Promise<any> {
+  const dedupKey = params.eventKey ? `${params.userId}:${params.eventKey}` : null;
+  if (dedupKey && inFlightNotifications.has(dedupKey)) {
+    return inFlightNotifications.get(dedupKey)!;
+  }
+
+  const executionPromise = (async () => {
+    let db = tx || prisma;
+
+  try {
+    /* Deduplication check: if eventKey is provided, check if already notified for this user */
+    if (params.eventKey) {
+      const existing = await db.notification.findFirst({
+        where: {
+          userId: params.userId,
+          eventKey: params.eventKey,
+        },
+      });
+      if (existing) {
+        return existing;
+      }
+    }
+
+    const notification = await db.notification.create({
+      data: {
+        userId: params.userId,
+        type: params.type,
+        title: params.title,
+        message: params.message,
+        entityType: params.entityType,
+        entityId: params.entityId,
+        targetUrl: params.targetUrl,
+        eventKey: params.eventKey,
+      },
+    });
+
+    /* Real-time broadcast to active subscribers */
+    try {
+      await publishNotificationEvent(
+        params.userId,
+        {
+          notificationId: notification.id,
+          type: notification.type,
+          category: getNotificationCategory(notification.type),
+          title: notification.title,
+          message: notification.message,
+          entityType: notification.entityType,
+          entityId: notification.entityId,
+          targetUrl: notification.targetUrl,
+          createdAt: notification.createdAt.toISOString(),
+        },
+        db === prisma ? undefined : db
+      );
+    } catch (broadcastErr) {
+      console.warn("Real-time notification broadcast non-fatal warning:", broadcastErr);
+    }
+
+    return notification;
+  } catch (err: unknown) {
+    // If a transaction client was provided but it was already closed, expired, or disconnected by Prisma,
+    // gracefully fall back to the global Prisma client to ensure the notification is never lost.
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    const isTxLifecycleError =
+      errorMessage.includes("Transaction API error") ||
+      errorMessage.includes("Transaction not found") ||
+      errorMessage.includes("Transaction already closed") ||
+      errorMessage.includes("transaction is closed") ||
+      errorMessage.includes("obtained before disconnecting");
+
+    if (isTxLifecycleError && tx) {
+      console.warn(
+        `[sendNotification] Transaction client expired or closed for user ${params.userId}; executing notification via global prisma client.`
+      );
+      db = prisma;
+
+      if (params.eventKey) {
+        const existing = await db.notification.findFirst({
+          where: {
+            userId: params.userId,
+            eventKey: params.eventKey,
+          },
+        });
+        if (existing) {
+          return existing;
+        }
+      }
+
+      const notification = await db.notification.create({
+        data: {
+          userId: params.userId,
+          type: params.type,
+          title: params.title,
+          message: params.message,
+          entityType: params.entityType,
+          entityId: params.entityId,
+          targetUrl: params.targetUrl,
+          eventKey: params.eventKey,
+        },
+      });
+
+      try {
+        await publishNotificationEvent(params.userId, {
+          notificationId: notification.id,
+          type: notification.type,
+          category: getNotificationCategory(notification.type),
+          title: notification.title,
+          message: notification.message,
+          entityType: notification.entityType,
+          entityId: notification.entityId,
+          targetUrl: notification.targetUrl,
+          createdAt: notification.createdAt.toISOString(),
+        });
+      } catch (broadcastErr) {
+        console.warn("Real-time notification broadcast fallback warning:", broadcastErr);
+      }
+
+      return notification;
+    }
+
+    // Preserve and rethrow real database or validation errors
+    throw err;
+  }
+  })();
+
+  if (dedupKey) {
+    inFlightNotifications.set(dedupKey, executionPromise);
+    executionPromise.finally(() => {
+      inFlightNotifications.delete(dedupKey);
+    });
+  }
+
+  return executionPromise;
+}
+
 /* ------------------------------------------------------------- */
 
 /* Specialized event dispatchers for consistent message formats */
@@ -309,25 +443,19 @@ export async function notifyMachineryBookingCreated({   farmerId,   ownerId,   b
    
 await sendNotification(     {       userId: ownerId,       type: "MACHINERY_BOOKING_CREATED",       title: "New Machinery Rental Request",       message: `New rental request #${bookingNumber} received for ${machineName} totaling ₹${Number(totalAmount).toFixed(2)}. Review and approve.`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/machinery/bookings`,       eventKey: `machinery:booking:${bookingId}:created:owner`,     },     tx   );   
 /* Notify Farmer of booking request submission */
-   return 
-await sendNotification(     {       userId: farmerId,       type: "MACHINERY_BOOKING_CREATED",       title: "Rental Request Submitted",       message: `Your rental request #${bookingNumber} for ${machineName} has been submitted to the owner for approval.`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/farmer/machinery/bookings/${bookingId}`,       eventKey: `machinery:booking:${bookingId}:created:farmer`,     },     tx   ); }  
+   return sendNotification(     {       userId: farmerId,       type: "MACHINERY_BOOKING_CREATED",       title: "Rental Request Submitted",       message: `Your rental request #${bookingNumber} for ${machineName} has been submitted to the owner for approval.`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/farmer/machinery/bookings/${bookingId}`,       eventKey: `machinery:booking:${bookingId}:created:farmer`,     },     tx   ); }  
 
-export async function notifyMachineryBookingApproved({   farmerId,   bookingId,   bookingNumber,   machineName,   tx, }: {   farmerId: string;   bookingId: string;   bookingNumber: string;   machineName: string;   tx?: Prisma.TransactionClient; }) {   return 
-await sendNotification(     {       userId: farmerId,       type: "MACHINERY_BOOKING_APPROVED",       title: "Rental Request Approved",       message: `Good news! Your rental request #${bookingNumber} for ${machineName} has been approved by the owner.`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/farmer/machinery/bookings/${bookingId}`,       eventKey: `machinery:booking:${bookingId}:approved`,     },     tx   ); }  
+export async function notifyMachineryBookingApproved({   farmerId,   bookingId,   bookingNumber,   machineName,   tx, }: {   farmerId: string;   bookingId: string;   bookingNumber: string;   machineName: string;   tx?: Prisma.TransactionClient; }) {   return sendNotification(     {       userId: farmerId,       type: "MACHINERY_BOOKING_APPROVED",       title: "Rental Request Approved",       message: `Good news! Your rental request #${bookingNumber} for ${machineName} has been approved by the owner.`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/farmer/machinery/bookings/${bookingId}`,       eventKey: `machinery:booking:${bookingId}:approved`,     },     tx   ); }  
 
-export async function notifyMachineryBookingRejected({   farmerId,   bookingId,   bookingNumber,   machineName,   reason,   tx, }: {   farmerId: string;   bookingId: string;   bookingNumber: string;   machineName: string;   reason?: string;   tx?: Prisma.TransactionClient; }) {   const reasonText = reason ? ` Reason: ${reason}` : "";   return 
-await sendNotification(     {       userId: farmerId,       type: "MACHINERY_BOOKING_REJECTED",       title: "Rental Request Declined",       message: `Rental request #${bookingNumber} for ${machineName} was declined by the owner.${reasonText}`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/farmer/machinery/bookings/${bookingId}`,       eventKey: `machinery:booking:${bookingId}:rejected`,     },     tx   ); }  
+export async function notifyMachineryBookingRejected({   farmerId,   bookingId,   bookingNumber,   machineName,   reason,   tx, }: {   farmerId: string;   bookingId: string;   bookingNumber: string;   machineName: string;   reason?: string;   tx?: Prisma.TransactionClient; }) {   const reasonText = reason ? ` Reason: ${reason}` : "";   return sendNotification(     {       userId: farmerId,       type: "MACHINERY_BOOKING_REJECTED",       title: "Rental Request Declined",       message: `Rental request #${bookingNumber} for ${machineName} was declined by the owner.${reasonText}`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/farmer/machinery/bookings/${bookingId}`,       eventKey: `machinery:booking:${bookingId}:rejected`,     },     tx   ); }  
 
-export async function notifyMachineryBookingReady({   farmerId,   bookingId,   bookingNumber,   machineName,   tx, }: {   farmerId: string;   bookingId: string;   bookingNumber: string;   machineName: string;   tx?: Prisma.TransactionClient; }) {   return 
-await sendNotification(     {       userId: farmerId,       type: "MACHINERY_BOOKING_READY",       title: "Machinery Ready for Dispatch",       message: `${machineName} for booking #${bookingNumber} is prepared and ready for pickup/delivery!`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/farmer/machinery/bookings/${bookingId}`,       eventKey: `machinery:booking:${bookingId}:ready`,     },     tx   ); }  
+export async function notifyMachineryBookingReady({   farmerId,   bookingId,   bookingNumber,   machineName,   tx, }: {   farmerId: string;   bookingId: string;   bookingNumber: string;   machineName: string;   tx?: Prisma.TransactionClient; }) {   return sendNotification(     {       userId: farmerId,       type: "MACHINERY_BOOKING_READY",       title: "Machinery Ready for Dispatch",       message: `${machineName} for booking #${bookingNumber} is prepared and ready for pickup/delivery!`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/farmer/machinery/bookings/${bookingId}`,       eventKey: `machinery:booking:${bookingId}:ready`,     },     tx   ); }  
 
 export async function notifyMachineryBookingActive({   farmerId,   ownerId,   bookingId,   bookingNumber,   machineName,   tx, }: {   farmerId: string;   ownerId: string;   bookingId: string;   bookingNumber: string;   machineName: string;   tx?: Prisma.TransactionClient; }) {   
-await sendNotification(     {       userId: farmerId,       type: "MACHINERY_BOOKING_ACTIVE",       title: "Rental Service Active",       message: `Your rental period for ${machineName} (#${bookingNumber}) is now officially active.`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/farmer/machinery/bookings/${bookingId}`,       eventKey: `machinery:booking:${bookingId}:active:farmer`,     },     tx   );    return 
-await sendNotification(     {       userId: ownerId,       type: "MACHINERY_BOOKING_ACTIVE",       title: "Machinery Rental Active",       message: `Rental #${bookingNumber} for ${machineName} has commenced.`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/machinery/bookings`,       eventKey: `machinery:booking:${bookingId}:active:owner`,     },     tx   ); }  
+await sendNotification(     {       userId: farmerId,       type: "MACHINERY_BOOKING_ACTIVE",       title: "Rental Service Active",       message: `Your rental period for ${machineName} (#${bookingNumber}) is now officially active.`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/farmer/machinery/bookings/${bookingId}`,       eventKey: `machinery:booking:${bookingId}:active:farmer`,     },     tx   );    return sendNotification(     {       userId: ownerId,       type: "MACHINERY_BOOKING_ACTIVE",       title: "Machinery Rental Active",       message: `Rental #${bookingNumber} for ${machineName} has commenced.`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/machinery/bookings`,       eventKey: `machinery:booking:${bookingId}:active:owner`,     },     tx   ); }  
 
 export async function notifyMachineryBookingCompleted({   farmerId,   ownerId,   bookingId,   bookingNumber,   machineName,   tx, }: {   farmerId: string;   ownerId: string;   bookingId: string;   bookingNumber: string;   machineName: string;   tx?: Prisma.TransactionClient; }) {   
-await sendNotification(     {       userId: farmerId,       type: "MACHINERY_BOOKING_COMPLETED",       title: "Rental Completed",       message: `Rental #${bookingNumber} for ${machineName} is marked complete. Thank you for using SmartProcure!`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/farmer/machinery/bookings/${bookingId}`,       eventKey: `machinery:booking:${bookingId}:completed:farmer`,     },     tx   );    return 
-await sendNotification(     {       userId: ownerId,       type: "MACHINERY_BOOKING_COMPLETED",       title: "Rental Completed",       message: `Rental #${bookingNumber} for ${machineName} has been finalized and returned.`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/machinery/bookings`,       eventKey: `machinery:booking:${bookingId}:completed:owner`,     },     tx   ); }  
+await sendNotification(     {       userId: farmerId,       type: "MACHINERY_BOOKING_COMPLETED",       title: "Rental Completed",       message: `Rental #${bookingNumber} for ${machineName} is marked complete. Thank you for using SmartProcure!`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/farmer/machinery/bookings/${bookingId}`,       eventKey: `machinery:booking:${bookingId}:completed:farmer`,     },     tx   );    return sendNotification(     {       userId: ownerId,       type: "MACHINERY_BOOKING_COMPLETED",       title: "Rental Completed",       message: `Rental #${bookingNumber} for ${machineName} has been finalized and returned.`,       entityType: "MACHINERY_BOOKING",       entityId: bookingId,       targetUrl: `/machinery/bookings`,       eventKey: `machinery:booking:${bookingId}:completed:owner`,     },     tx   ); }  
 
 export async function notifyMachineryBookingCancelled({   farmerId,   ownerId,   bookingId,   bookingNumber,   machineName,   cancelledBy,   tx, }: {   farmerId: string;   ownerId: string;   bookingId: string;   bookingNumber: string;   machineName: string;   cancelledBy: "FARMER" | "OWNER" | "ADMIN";   tx?: Prisma.TransactionClient; }) {  
 /* If cancelled by farmer, notify owner */
